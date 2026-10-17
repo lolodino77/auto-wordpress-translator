@@ -1,0 +1,22 @@
+[wordpress]
+site = "VOTRESITE.wordpress.com"   # à remplacer
+
+[llm]
+engines = ["gemini", "gpt"]        # ordre d'essai ; le suivant sert de secours
+profile_dir = "browser_profile"
+headless = false                   # laissez false : moins de captchas
+max_words = 9000                   # au-delà, l'article est ignoré (à découper à la main)
+
+prompt = """Tu es traducteur professionnel anglais vers français. Ta réponse doit être ENTIÈREMENT en français (titre, tags et corps) : ne recopie jamais l'anglais. Traduis fidèlement l'article ci-dessous, dans un français naturel et fluide, sans résumer ni omettre aucun passage. Conserve la structure (titres, paragraphes, listes, citations, liens).
+
+Réponds UNIQUEMENT par un seul bloc de code ```html contenant, dans cet ordre :
+TITRE: <titre traduit>
+TAGS: <3 à 6 tags en français, séparés par des virgules>
+---
+<corps de l'article en HTML simple : h2, h3, p, ul, ol, blockquote, a href, em, strong ; sans html/body/h1>
+<!--FIN-->
+
+Article source (titre : {title})
+
+{text}
+"""

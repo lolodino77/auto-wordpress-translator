@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Projet auto-wordpress-translator
+browser_profile/
+state.db
+wp_token.json
+agent.log
+output/

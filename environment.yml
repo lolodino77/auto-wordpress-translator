@@ -1,0 +1,10 @@
+name: auto-wordpress-translator
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - trafilatura
+      - playwright
+      - requests
