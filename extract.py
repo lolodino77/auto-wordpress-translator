@@ -2,6 +2,7 @@
 import csv
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 import trafilatura
 
@@ -39,6 +40,17 @@ _JUNK_TAIL = re.compile(
     r"(\n\s*(To download Theopolis Lectures[^\n]*|CLOSE|Subscribe to[^\n]*|Sign up for[^\n]*newsletter[^\n]*))+\s*$",
     re.I,
 )
+
+
+def _clean_title(title: str, url: str) -> str:
+    """Retire le suffixe « - Nom du site » du titre, seulement s'il correspond au domaine de l'URL."""
+    domain = re.sub(r"[^a-z0-9]", "", urlparse(url).netloc.lower())
+    parts = re.split(r"\s+[-|–—]\s+", title)
+    if len(parts) > 1:
+        suffix = re.sub(r"[^a-z0-9]", "", parts[-1].lower())
+        if suffix and (suffix in domain or domain.removeprefix("www") in suffix):
+            return " - ".join(parts[:-1]).strip()
+    return title
 
 
 def _render(url: str) -> str | None:
@@ -82,7 +94,7 @@ def extract(url: str) -> Article:
     if not text:
         raise RuntimeError(f"Texte introuvable (page bloquée, payante ou vide) : {url}")
     meta = trafilatura.extract_metadata(html)
-    title = (meta.title if meta and meta.title else url).strip()
+    title = _clean_title((meta.title if meta and meta.title else url).strip(), url)
     tags = _split(getattr(meta, "tags", None)) + _split(getattr(meta, "categories", None))
     return Article(url=url, title=title, text=text, tags=tags)
 
