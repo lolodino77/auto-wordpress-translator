@@ -6,7 +6,6 @@ Usage :
   python agent.py                  # traite urls.txt (les URLs déjà publiées sont sautées)
 """
 import argparse
-import html as htmllib
 import logging
 import sqlite3
 import tomllib
@@ -14,7 +13,8 @@ from pathlib import Path
 
 import wp
 from extract import extract, read_csv
-from llm_browser import Browser, LLMUnavailable, parse_answer
+from llm_browser import Browser
+from pipeline import slug, translate_article, write_review
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,27 +35,17 @@ def set_status(db, url, status, info=""):
     db.commit()
 
 
-def process(url: str, csv_tags: list[str], cfg: dict, browser: Browser) -> str:
+def process(url: str, csv_tags: list[str], cfg: dict, browser: Browser, categories: list[str]) -> str:
     art = extract(url)
     if len(art.text.split()) > cfg["llm"]["max_words"]:
         raise RuntimeError("Article trop long, à découper à la main")
-    prompt = cfg["llm"]["prompt"].format(title=art.title, text=art.text)
-
-    errors = []
-    for engine in cfg["llm"]["engines"]:
-        try:
-            raw = browser.translate(engine, prompt)
-            title, tags, body = parse_answer(raw)
-            break
-        except (LLMUnavailable, ValueError) as e:
-            log.warning("%s a échoué : %s", engine, e)
-            errors.append(f"{engine}: {e}")
-    else:
-        raise RuntimeError("Tous les moteurs ont échoué : " + " | ".join(errors))
-
-    source = f'<p><em>Article original : <a href="{htmllib.escape(url)}">{htmllib.escape(art.title)}</a></em></p>\n'
-    all_tags = list(dict.fromkeys(csv_tags + tags))  # tags de la source ignorés : en anglais
-    return wp.create_draft(cfg["wordpress"]["site"], title, source + body, all_tags)
+    res = translate_article(art, cfg, browser, categories)
+    tags = list(dict.fromkeys(csv_tags + res.tags))  # tags de la source ignorés : en anglais
+    draft = wp.create_draft(cfg["wordpress"]["site"], res.title, res.html, tags, [res.category] if res.category else None)
+    write_review(Path("output/review") / f"{slug(url)}.md", art, res, draft)
+    for w in res.warnings:
+        log.warning("%s : %s", url, w)
+    return draft
 
 
 def main():
@@ -63,6 +53,8 @@ def main():
     ap.add_argument("--login", action="store_true")
     ap.add_argument("--auth", action="store_true", help="autoriser WordPress.com (ID et secret saisis dans le terminal)")
     ap.add_argument("--csv", default="input/articles.csv", help="colonnes : url,tags (tags séparés par ;)")
+    ap.add_argument("--force", action="store_true", help="retraite aussi les URLs déjà publiées (crée de nouveaux brouillons)")
+    ap.add_argument("--only", type=int, default=None, help="ne traiter que la ligne N du CSV (1 = première), même si déjà publiée")
     args = ap.parse_args()
 
     cfg = tomllib.loads(Path("config.toml").read_text(encoding="utf-8"))
@@ -78,14 +70,22 @@ def main():
         return
 
     db = open_db()
-    done = {r[0] for r in db.execute("SELECT url FROM jobs WHERE status='published'")}
-    todo = [(u, t) for u, t in read_csv(args.csv) if u not in done]
+    done = set() if args.force else {r[0] for r in db.execute("SELECT url FROM jobs WHERE status='published'")}
+    todo = [(u, t) for i, (u, t) in enumerate(read_csv(args.csv), start=1)
+            if (args.only is None or i == args.only) and (u not in done or args.only)]
     log.info("%d article(s) à traiter", len(todo))
+    if not todo:
+        return
+    try:
+        categories = wp.list_categories(cfg["wordpress"]["site"])
+    except Exception as e:  # sans catégories, le LLM n'en propose pas ; l'article reste créé
+        categories = []
+        log.warning("Catégories du site illisibles (%s) : aucune catégorie ne sera proposée", e)
 
     with Browser(cfg["llm"]["profile_dir"], cfg["llm"]["headless"]) as browser:
         for url, csv_tags in todo:
             try:
-                draft = process(url, csv_tags, cfg, browser)
+                draft = process(url, csv_tags, cfg, browser, categories)
                 set_status(db, url, "published", draft)
                 log.info("OK %s -> %s", url, draft)
             except Exception as e:

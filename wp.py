@@ -60,15 +60,25 @@ def authorize(client_id: str, client_secret: str) -> None:
     print("Token sauvegardé dans", TOKEN_FILE)
 
 
-def create_draft(site: str, title: str, html: str, tags: list[str]) -> str:
-    """Crée un brouillon et retourne son URL d'édition/prévisualisation."""
+def _headers() -> dict:
     token = json.loads(TOKEN_FILE.read_text(encoding="utf-8"))["access_token"]
-    r = requests.post(
-        f"{API}/rest/v1.1/sites/{site}/posts/new",
-        headers={"Authorization": f"Bearer {token}"},
-        data={"title": title, "content": html, "status": "draft", "tags": ",".join(tags)},
-        timeout=60,
-    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def list_categories(site: str) -> list[str]:
+    """Noms des catégories existantes du site (la spec demande de choisir une catégorie)."""
+    r = requests.get(f"{API}/rest/v1.1/sites/{site}/categories", params={"number": 100},
+                     headers=_headers(), timeout=30)
+    r.raise_for_status()
+    return [c["name"] for c in r.json().get("categories", [])]
+
+
+def create_draft(site: str, title: str, html: str, tags: list[str], categories: list[str] | None = None) -> str:
+    """Crée un brouillon et retourne son URL d'édition/prévisualisation."""
+    data = {"title": title, "content": html, "status": "draft", "tags": ",".join(tags)}
+    if categories:
+        data["categories"] = ",".join(categories)
+    r = requests.post(f"{API}/rest/v1.1/sites/{site}/posts/new", headers=_headers(), data=data, timeout=60)
     r.raise_for_status()
     return r.json().get("URL", "")
 
