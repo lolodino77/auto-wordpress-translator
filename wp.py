@@ -19,7 +19,19 @@ TOKEN_FILE = Path("wp_token.json")
 REDIRECT = "http://localhost:8765/callback"
 
 
-def authorize(client_id: str, client_secret: str) -> None:
+def authorize_url(client_id: str, scope: str | None = None, blog: str | None = None) -> str:
+    """URL d'autorisation OAuth. `scope` (séparés par des espaces) limite les droits demandés, par exemple
+    « posts taxonomy » (créer/éditer des articles + étiquettes et catégories, rien d'autre) ; `blog` limite le jeton à
+    un seul site. Sans scope, WordPress.com accorde son ensemble de droits par défaut (bien plus large)."""
+    params = {"client_id": client_id, "redirect_uri": REDIRECT, "response_type": "code"}
+    if scope:
+        params["scope"] = scope
+    if blog:
+        params["blog"] = blog
+    return f"{API}/oauth2/authorize?" + urlencode(params)
+
+
+def authorize(client_id: str, client_secret: str, scope: str | None = None, blog: str | None = None) -> None:
     """À lancer UNE fois : ouvre le navigateur, récupère le code, sauvegarde le token."""
     got = {}
 
@@ -36,10 +48,7 @@ def authorize(client_id: str, client_secret: str) -> None:
 
     server = HTTPServer(("localhost", 8765), Handler)
     threading.Thread(target=server.handle_request, daemon=True).start()
-    webbrowser.open(
-        f"{API}/oauth2/authorize?"
-        + urlencode({"client_id": client_id, "redirect_uri": REDIRECT, "response_type": "code"})
-    )
+    webbrowser.open(authorize_url(client_id, scope, blog))
     while "code" not in got:
         if "error" in got:
             raise RuntimeError(f"Autorisation refusée : {got['error']}")

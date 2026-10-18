@@ -1,5 +1,9 @@
 [wordpress]
 site = "gilbertgertrudetest.wordpress.com"
+# Droits demandés à WordPress.com lors de « python agent.py --auth » (moindre privilège). « posts » = créer/éditer des
+# articles ; « taxonomy » = étiquettes et catégories. Vide = droits par défaut, beaucoup plus larges.
+# Le jeton est aussi limité à ce seul site. À changer, il faut refaire --auth.
+scope = "posts taxonomy"
 
 [specs]
 dir = "spec"                       # tous les PDF de ce dossier sont lus et injectés dans le prompt

@@ -322,6 +322,39 @@ class Slug(unittest.TestCase):
         self.assertTrue(any("construit à partir du titre" in f for f in res.fixes))
 
 
+class OAuthScope(unittest.TestCase):
+    def test_least_privilege_url(self):
+        from urllib.parse import parse_qs, urlparse
+        import wp
+        q = parse_qs(urlparse(wp.authorize_url("123", "posts taxonomy", "monsite.wordpress.com")).query)
+        self.assertEqual(q["scope"], ["posts taxonomy"])
+        self.assertEqual(q["blog"], ["monsite.wordpress.com"])
+        self.assertEqual(q["client_id"], ["123"])
+
+    def test_default_url_has_no_scope(self):
+        from urllib.parse import parse_qs, urlparse
+        import wp
+        q = parse_qs(urlparse(wp.authorize_url("123")).query)
+        self.assertNotIn("scope", q)
+        self.assertNotIn("blog", q)
+
+    def test_config_asks_for_posts_and_taxonomy_only(self):
+        import tomllib
+        from pathlib import Path
+        cfg = tomllib.loads(Path("config.toml").read_text(encoding="utf-8"))
+        self.assertEqual(set(cfg["wordpress"]["scope"].split()), {"posts", "taxonomy"})
+
+    def test_only_write_call_creates_a_draft(self):
+        """Garde-fou de code : le seul envoi de contenu à WordPress force status=draft."""
+        import inspect
+        import wp
+        src = inspect.getsource(wp.create_draft)
+        self.assertIn('"status": "draft"', src)
+        self.assertEqual(inspect.getsource(wp).count("requests.post("), 2)  # jeton OAuth + création du brouillon
+        self.assertNotIn("requests.delete", inspect.getsource(wp))
+        self.assertNotIn("requests.put", inspect.getsource(wp))
+
+
 class Urls(unittest.TestCase):
     def test_bare_url_in_note_keeps_closing_brackets_outside_the_link(self):
         """Cas réel (brouillon 99) : WordPress avalait « .]] » dans l'URL nue."""

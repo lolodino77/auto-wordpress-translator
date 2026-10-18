@@ -63,7 +63,10 @@ def main():
     if args.auth:
         import getpass
 
-        wp.authorize(input("Client ID : ").strip(), getpass.getpass("Client secret (masqué) : ").strip())
+        wp_cfg = cfg["wordpress"]
+        print(f"Droits demandés : {wp_cfg.get('scope') or '(défaut de WordPress.com : large)'} | site : {wp_cfg['site']}")
+        wp.authorize(input("Client ID : ").strip(), getpass.getpass("Client secret (masqué) : ").strip(),
+                     wp_cfg.get("scope") or None, wp_cfg["site"])
         return
     if args.login:
         with Browser(cfg["llm"]["profile_dir"]) as b:
