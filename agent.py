@@ -41,7 +41,8 @@ def process(url: str, csv_tags: list[str], cfg: dict, browser: Browser, categori
         raise RuntimeError("Article trop long, à découper à la main")
     res = translate_article(art, cfg, browser, categories)
     tags = list(dict.fromkeys(csv_tags + res.tags))  # tags de la source ignorés : en anglais
-    draft = wp.create_draft(cfg["wordpress"]["site"], res.title, res.html, tags, [res.category] if res.category else None)
+    draft = wp.create_draft(cfg["wordpress"]["site"], res.title, res.html, tags,
+                            [res.category] if res.category else None, res.slug)
     write_review(Path("output/review") / f"{slug(url)}.md", art, res, draft)
     for w in res.warnings:
         log.warning("%s : %s", url, w)

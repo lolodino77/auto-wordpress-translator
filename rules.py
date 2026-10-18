@@ -318,6 +318,53 @@ def build_intro(url: str, original_title: str) -> str:
             "<hr>\n")
 
 
+# --- 6b. Identifiant (slug) de l'article : court, seulement les noms et les mots importants -------------
+# Mots supprimés (écrits sans accents) : déterminants, prépositions, pronoms, conjonctions, interrogatifs, formes des
+# verbes être/avoir/faire/pouvoir et adverbes courants.
+_SLUG_STOPWORDS = set("""
+le la les l un une des du de d au aux et ou mais donc or ni car que qu qui quoi dont ou ce cet cette ces se sa son ses
+mon ma mes ton ta tes notre nos votre vos leur leurs je j tu il elle on nous vous ils elles me te lui eux y en
+dans sur sous par pour avec sans chez vers entre contre selon comme si ne n pas
+est sont etait etaient etre ete sera seront serait soit sois suis es sommes etes fut fusse
+a ont avait avaient avoir aura auront aurait ai as avons avez eu
+fait font faire fera ferait peut peuvent pouvoir pourrait doit doivent devoir
+quel quels quelle quelles quoi comment pourquoi quand combien lequel laquelle
+tout tous toute toutes autre autres meme memes tel telle tels telles chaque plusieurs
+plus moins tres trop assez aussi encore toujours jamais souvent deja vraiment reellement seulement
+ici la voici voila alors ainsi donc puis enfin apres avant pendant depuis
+""".split())
+_SLUG_MAX_WORDS = 6
+_SLUG_MAX_CHARS = 60
+
+
+def _fold(text: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c)).replace("œ", "oe").replace("æ", "ae")
+
+
+def clean_slug(text: str) -> str:
+    """Minuscules sans accents, mots séparés par des tirets, déterminants & co retirés, versets collés (29,11 -> 2911),
+    au plus 6 mots et 60 caractères."""
+    t = _fold(htmllib.unescape(text)).lower()
+    t = re.sub(r"(?<=\d)\s?[,:.]\s?(?=\d)", "", t)  # « 29,11 » / « 29:11 » -> « 2911 »
+    words = [w for w in re.split(r"[^a-z0-9]+", t) if w and w not in _SLUG_STOPWORDS]
+    kept: list[str] = []
+    for w in words[:_SLUG_MAX_WORDS]:
+        if len("-".join(kept + [w])) > _SLUG_MAX_CHARS:
+            break
+        kept.append(w)
+    return "-".join(kept)
+
+
+def make_slug(candidate: str | None, title: str) -> tuple[str, bool]:
+    """Identifiant final : celui proposé par le LLM (nettoyé), sinon construit à partir du titre.
+    Retourne (slug, venait_du_titre)."""
+    slug = clean_slug(candidate or "")
+    if slug:
+        return slug, False
+    return clean_slug(title), True
+
+
 # --- 7. Contrôles sans correction automatique -----------------------------------------------------------
 def check(html: str, rep: Report) -> None:
     text = _text_only(html)

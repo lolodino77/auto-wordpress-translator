@@ -136,18 +136,20 @@ class Answer(NamedTuple):
     category: str | None  # None si le LLM n'en a pas proposé
     html: str
     to_check: list[str]  # points signalés par le LLM pour la relecture humaine
+    slug: str | None = None  # identifiant (URL) proposé par le LLM, à nettoyer avec rules.make_slug
 
 
 def parse_answer(raw: str) -> Answer:
-    """Découpe la réponse du LLM : TITRE, TAGS, CATEGORIE (optionnel), '---', corps HTML, <!--A_VERIFIER:...-->."""
+    """Découpe la réponse du LLM : TITRE, puis TAGS / CATEGORIE / SLUG (dans cet ordre ou non), '---', corps HTML,
+    <!--A_VERIFIER:...-->."""
     raw = raw.replace(END_MARK, "").strip()
-    m = re.search(
-        r"TITRE\s*:\s*(.+?)\s*\n\s*TAGS\s*:\s*(.+?)\s*\n(?:\s*CATEGORIE\s*:\s*(.+?)\s*\n)?\s*-{3,}\s*\n(.*)",
-        raw, re.S,
-    )
+    m = re.search(r"TITRE\s*:\s*(.+?)\s*\n(.*?)\n\s*-{3,}\s*\n(.*)", raw, re.S)
     if not m:
-        raise ValueError("Format de réponse inattendu (TITRE/TAGS/---manquants)")
-    title, tags, category, html = m.group(1), m.group(2), m.group(3), m.group(4).strip()
+        raise ValueError("Format de réponse inattendu (TITRE/TAGS/--- manquants)")
+    fields = {k.upper(): v.strip() for k, v in re.findall(r"(?m)^\s*(TAGS|CATEGORIE|SLUG)\s*:\s*(.*)$", m.group(2))}
+    if not fields.get("TAGS"):
+        raise ValueError("Format de réponse inattendu (TAGS manquant)")
+    title, tags, category, slug, html = m.group(1), fields["TAGS"], fields.get("CATEGORIE"), fields.get("SLUG"), m.group(3).strip()
     to_check: list[str] = []
     check = re.search(r"<!--\s*A_VERIFIER\s*:(.*?)-->", html, re.S)
     if check:
@@ -161,4 +163,5 @@ def parse_answer(raw: str) -> Answer:
     fr = len(re.findall(r"\b(le|la|les|des|et|est|que|une?)\b", html, re.I))
     if en > fr:
         raise ValueError("La réponse semble ne pas être traduite en français")
-    return Answer(title, [t.strip() for t in tags.split(",") if t.strip()], category and category.strip(), html, to_check)
+    return Answer(title, [t.strip() for t in tags.split(",") if t.strip()], category and category.strip(), html, to_check,
+                  slug or None)

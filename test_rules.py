@@ -254,6 +254,74 @@ class BibleRefs(unittest.TestCase):
         self.assertIn("10:30", out)
 
 
+class Slug(unittest.TestCase):
+    TITLE = "Quels sont les « projets » de Dieu pour vous ? Ce que signifie vraiment Jérémie 29,11"
+
+    def test_example_of_the_editor(self):
+        self.assertEqual(rules.make_slug("projets-dieu-jeremie-2911", self.TITLE), ("projets-dieu-jeremie-2911", False))
+
+    def test_determiners_and_function_words_are_removed_from_llm_slug(self):
+        self.assertEqual(rules.clean_slug("les-projets-de-dieu-pour-vous-jeremie-29-11"), "projets-dieu-jeremie-29-11")
+        self.assertEqual(rules.clean_slug("Quels sont les projets de Dieu"), "projets-dieu")
+
+    def test_verse_numbers_are_glued(self):
+        self.assertEqual(rules.clean_slug("Jérémie 29,11"), "jeremie-2911")
+        self.assertEqual(rules.clean_slug("Romains 8:28"), "romains-828")
+
+    def test_accents_case_and_ligatures(self):
+        self.assertEqual(rules.clean_slug("Ésaïe 53,5 : le Serviteur ; cœur"), "esaie-535-serviteur-coeur")
+
+    def test_length_limits(self):
+        s = rules.clean_slug("alpha bravo charlie delta echo foxtrot golf hotel")
+        self.assertEqual(s, "alpha-bravo-charlie-delta-echo-foxtrot")  # 6 mots maximum
+        long = rules.clean_slug(" ".join(["abcdefghij"] * 6))
+        self.assertLessEqual(len(long), 60)
+
+    def test_slug_is_url_safe(self):
+        s = rules.clean_slug("Noël ? « Fête » & <b>joie</b> !")
+        self.assertRegex(s, r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+    def test_fallback_to_title_when_llm_gives_nothing_usable(self):
+        title = "Les chapitres de la maternité : comment la lecture façonne un enfant"
+        self.assertEqual(rules.make_slug(None, title), (rules.clean_slug(title), True))
+        self.assertEqual(rules.make_slug("les de la", title)[1], True)  # que des mots vides -> repli sur le titre
+        self.assertTrue(rules.make_slug(None, title)[0].startswith("chapitres-maternite"))
+
+    def test_parse_answer_reads_slug_in_any_order(self):
+        a = parse_answer("TITRE: T\nTAGS: a\nSLUG: projets-dieu\nCATEGORIE: Théologie\n---\n<p>Le texte est la et des.</p>\n<!--FIN-->")
+        self.assertEqual((a.slug, a.category), ("projets-dieu", "Théologie"))
+        b = parse_answer("TITRE: T\nTAGS: a\nCATEGORIE: aucune\nSLUG: x-y\n---\n<p>Le texte est la et des.</p>\n<!--FIN-->")
+        self.assertEqual((b.slug, b.category), ("x-y", None))
+        c = parse_answer("TITRE: T\nTAGS: a\n---\n<p>Le texte est la et des.</p>\n<!--FIN-->")
+        self.assertIsNone(c.slug)
+
+    def test_pipeline_returns_clean_slug(self):
+        from extract import Article
+        from pipeline import translate_article
+        import tomllib
+        from pathlib import Path
+        cfg = tomllib.loads(Path("config.toml").read_text(encoding="utf-8"))
+        cfg["llm"]["engines"] = ["gemini"]
+        text = "Some text without footnotes at all. " * 10
+        answer = ("TITRE: Quels sont les « projets » de Dieu\nTAGS: a\nCATEGORIE: aucune\n"
+                  "SLUG: Les-Projets-de-Dieu-Jérémie-29,11\n---\n<p>Le texte est la et des.</p>\n<!--FIN-->")
+        res = translate_article(Article("https://example.com/a", "Original", text), cfg, FakeBrowser([answer]))
+        self.assertEqual(res.slug, "projets-dieu-jeremie-2911")
+        self.assertTrue(any("nettoyé" in f for f in res.fixes))
+
+    def test_pipeline_falls_back_to_title(self):
+        from extract import Article
+        from pipeline import translate_article
+        import tomllib
+        from pathlib import Path
+        cfg = tomllib.loads(Path("config.toml").read_text(encoding="utf-8"))
+        cfg["llm"]["engines"] = ["gemini"]
+        res = translate_article(Article("https://example.com/a", "Original", "Texte source sans note. " * 10), cfg,
+                                FakeBrowser([raw(GOOD)]))  # réponse sans ligne SLUG
+        self.assertEqual(res.slug, "titre")  # titre « Un titre » -> « titre » (« un » retiré)
+        self.assertTrue(any("construit à partir du titre" in f for f in res.fixes))
+
+
 class Urls(unittest.TestCase):
     def test_bare_url_in_note_keeps_closing_brackets_outside_the_link(self):
         """Cas réel (brouillon 99) : WordPress avalait « .]] » dans l'URL nue."""

@@ -73,11 +73,14 @@ def list_categories(site: str) -> list[str]:
     return [c["name"] for c in r.json().get("categories", [])]
 
 
-def create_draft(site: str, title: str, html: str, tags: list[str], categories: list[str] | None = None) -> str:
-    """Crée un brouillon et retourne son URL d'édition/prévisualisation."""
+def create_draft(site: str, title: str, html: str, tags: list[str], categories: list[str] | None = None,
+                 slug: str | None = None) -> str:
+    """Crée un brouillon et retourne son URL d'édition/prévisualisation. `slug` = identifiant de l'URL de l'article."""
     data = {"title": title, "content": html, "status": "draft", "tags": ",".join(tags)}
     if categories:
         data["categories"] = ",".join(categories)
+    if slug:
+        data["slug"] = slug
     r = requests.post(f"{API}/rest/v1.1/sites/{site}/posts/new", headers=_headers(), data=data, timeout=60)
     r.raise_for_status()
     return r.json().get("URL", "")

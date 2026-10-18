@@ -21,6 +21,7 @@ for pid in ids:
     p = r.json()
     text = re.sub(r"<[^>]+>", " ", p["content"])
     print(f"{pid} | {p['status']} | {len(text.split())} mots | {p['title']} | tags: {list(p['tags'])}")
+    print(f"    identifiant (slug) : {p.get('slug')!r}")
     print("    fin:", re.sub(r"\s+", " ", text)[-110:])
     notes = re.findall(r"\[\[.*?\]\]", p["content"], re.S)
     print(f"    notes [[ ]] : {len(notes)} | '[[' : {p['content'].count('[[')} | ']]' : {p['content'].count(']]')}")
