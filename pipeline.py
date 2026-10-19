@@ -92,9 +92,18 @@ def translate_article(art: Article, cfg: dict, browser: Browser, categories: lis
     if len(ans.to_check) < before:
         rep.fixes.append(f"{before - len(ans.to_check)} élément(s) « à vérifier » écarté(s) : absents de l'article source "
                          "(le LLM avait repris des exemples des documents de règles).")
+    src_headings = len(re.findall(r"(?m)^#{1,6}\s", art.text))
+    out_headings = len(re.findall(r"<h[34]\b", body))
+    if out_headings > src_headings:
+        rep.warnings.append(f"{out_headings} titre(s) dans la traduction pour {src_headings} dans la source : "
+                            "un intertitre a peut-être été inventé (ou le titre de l'article répété dans le corps).")
     slug, from_title = rules.make_slug(ans.slug, ans.title)
     if from_title:
-        rep.fixes.append("Identifiant (slug) construit à partir du titre : le LLM n'en avait pas proposé d'exploitable.")
+        if rules.clean_slug(ans.slug or ""):
+            rep.fixes.append(f"Identifiant (slug) proposé « {ans.slug} » écarté : un mot n'est pas dans le titre. "
+                             f"Reconstruit à partir du titre : « {slug} ».")
+        else:
+            rep.fixes.append("Identifiant (slug) construit à partir du titre : le LLM n'en avait pas proposé d'exploitable.")
     elif ans.slug and slug != ans.slug:
         rep.fixes.append(f"Identifiant (slug) nettoyé : « {ans.slug} » -> « {slug} ».")
     category = ans.category
@@ -115,7 +124,8 @@ def write_review(path: Path, art: Article, res: Result, draft_url: str = "") -> 
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        f"# Relecture : {res.title}\n\nSource : {art.url}\nBrouillon : {draft_url or '(non publié)'}\n"
+        f"# Relecture : {res.title}\n\nSource : {art.url or '(fichier .md local, adresse d origine inconnue)'}\n"
+        f"Brouillon : {draft_url or '(non publié)'}\n"
         f"Moteur : {res.engine} | Catégorie : {res.category or '(aucune)'} | Étiquettes : {', '.join(res.tags)}\n"
         f"Identifiant (slug) : {res.slug or '(aucun)'}\n\n"
         f"## Corrections automatiques appliquées\n{bullets(res.fixes)}\n\n"

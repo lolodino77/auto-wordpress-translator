@@ -2,8 +2,10 @@
 
 Usage :
   python agent.py --login          # une fois : se connecter à Gemini/ChatGPT dans le profil
-  python agent.py --auth           # une fois : autoriser l'accès WordPress.com
-  python agent.py                  # traite urls.txt (les URLs déjà publiées sont sautées)
+  python agent.py --auth           # une fois : identifiants WordPress (OAuth WordPress.com ou mot de passe d'application)
+  python agent.py                  # traite les URLs de input/articles.csv (celles déjà faites sont sautées)
+  python agent.py --md             # traite les fichiers .md de input/articles_md/ (même pipeline)
+  python agent.py --md AUTRE/DOSSIER --only 2 --force
 """
 import argparse
 import logging
@@ -13,7 +15,7 @@ import tomllib
 from pathlib import Path
 
 import wp
-from extract import extract, read_csv
+from inputs import csv_jobs, label, md_jobs
 from llm_browser import Browser
 from pipeline import slug, translate_article, write_review
 
@@ -49,15 +51,18 @@ def set_status(db, url, status, info=""):
     db.commit()
 
 
-def process(url: str, csv_tags: list[str], cfg: dict, browser: Browser, categories: list[str]) -> str:
-    art = extract(url)
+def process(key: str, csv_tags: list[str], load, cfg: dict, browser: Browser, categories: list[str]) -> str:
+    """Pipeline d'un travail (URL du CSV ou fichier .md) : chargement, traduction, règles, brouillon, fiche de relecture."""
+    url = key
+    art = load()
     if len(art.text.split()) > cfg["llm"]["max_words"]:
         raise RuntimeError("Article trop long, à découper à la main")
     res = translate_article(art, cfg, browser, categories)
     tags = list(dict.fromkeys(csv_tags + res.tags))  # tags de la source ignorés : en anglais
     draft = backend(cfg).create_draft(cfg["wordpress"]["site"], res.title, res.html, tags,
                                       [res.category] if res.category else None, res.slug)
-    write_review(Path("output/review") / f"{slug(url)}.md", art, res, draft)
+    res.warnings.extend(getattr(backend(cfg), "last_warnings", []))  # ex. étiquettes non posées (site restreint)
+    write_review(Path("output/review") / f"{slug(label(key))}.md", art, res, draft)
     for w in res.warnings:
         log.warning("%s : %s", url, w)
     return draft
@@ -67,9 +72,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--login", action="store_true")
     ap.add_argument("--auth", action="store_true", help="autoriser WordPress.com (ID et secret saisis dans le terminal)")
-    ap.add_argument("--csv", default="input/articles.csv", help="colonnes : url,tags (tags séparés par ;)")
-    ap.add_argument("--force", action="store_true", help="retraite aussi les URLs déjà publiées (crée de nouveaux brouillons)")
-    ap.add_argument("--only", type=int, default=None, help="ne traiter que la ligne N du CSV (1 = première), même si déjà publiée")
+    ap.add_argument("--csv", default="input/articles.csv", help="une URL par ligne (étiquettes en 2e colonne, séparées par ;)")
+    ap.add_argument("--md", nargs="?", const="input/articles_md", default=None, metavar="DOSSIER",
+                    help="au lieu du CSV, traite chaque fichier .md du dossier (défaut : input/articles_md)")
+    ap.add_argument("--force", action="store_true", help="retraite aussi les articles déjà faits (crée de nouveaux brouillons)")
+    ap.add_argument("--only", type=int, default=None,
+                    help="ne traiter que l'élément N de la liste (1 = premier), même s'il est déjà fait")
     args = ap.parse_args()
 
     cfg = tomllib.loads(Path("config.toml").read_text(encoding="utf-8"))
@@ -96,9 +104,10 @@ def main():
 
     db = open_db(cfg["wordpress"]["site"])
     done = set() if args.force else {r[0] for r in db.execute("SELECT url FROM jobs WHERE status='published'")}
-    todo = [(u, t) for i, (u, t) in enumerate(read_csv(args.csv), start=1)
-            if (args.only is None or i == args.only) and (u not in done or args.only)]
-    log.info("%d article(s) à traiter", len(todo))
+    jobs = md_jobs(args.md) if args.md is not None else csv_jobs(args.csv)
+    todo = [(k, t, load) for i, (k, t, load) in enumerate(jobs, start=1)
+            if (args.only is None or i == args.only) and (k not in done or args.only)]
+    log.info("%d article(s) à traiter (source : %s)", len(todo), f"dossier {args.md}" if args.md is not None else args.csv)
     if not todo:
         return
     try:
@@ -108,17 +117,18 @@ def main():
         log.warning("Catégories du site illisibles (%s) : aucune catégorie ne sera proposée", e)
 
     with Browser(cfg["llm"]["profile_dir"], cfg["llm"]["headless"]) as browser:
-        for url, csv_tags in todo:
+        for key, csv_tags, load in todo:
             try:
-                draft = process(url, csv_tags, cfg, browser, categories)
-                set_status(db, url, "published", draft)
-                log.info("OK %s -> %s", url, draft)
+                draft = process(key, csv_tags, load, cfg, browser, categories)
+                set_status(db, key, "published", draft)  # « published » = traité : un BROUILLON a été créé, jamais publié
+                log.info("OK %s -> %s", key, draft)
             except Exception as e:
-                set_status(db, url, "error", str(e))
-                log.error("ECHEC %s : %s", url, e)
+                set_status(db, key, "error", str(e))
+                log.error("ECHEC %s : %s", key, e)
 
-    for url, status, info in db.execute("SELECT * FROM jobs"):
-        print(f"[{status}] {url} {info}")
+    names = {"published": "brouillon créé", "error": "erreur"}
+    for key, status, info in db.execute("SELECT * FROM jobs"):
+        print(f"[{names.get(status, status)}] {key} {info}")
 
 
 if __name__ == "__main__":

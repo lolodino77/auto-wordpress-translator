@@ -8,14 +8,19 @@ import trafilatura
 
 
 def read_csv(path: str) -> list[tuple[str, list[str]]]:
-    """Lit le CSV (colonnes url,tags ; tags séparés par ; ou ,) -> [(url, [tags])]."""
+    """Lit le CSV : une URL par ligne, étiquettes éventuelles en 2e colonne (séparées par ;). L'en-tête « url,tags » est
+    facultatif : toute ligne dont la 1re cellule commence par http(s):// est une ligne de données."""
     rows = []
     with open(path, encoding="utf-8-sig", newline="") as f:
-        for row in csv.DictReader(f):
-            url = (row.get("url") or "").strip()
-            if url:
-                tags = [t.strip() for t in (row.get("tags") or "").replace(",", ";").split(";") if t.strip()]
-                rows.append((url, tags))
+        for row in csv.reader(f):
+            if not row:
+                continue
+            url = row[0].strip()
+            if not re.match(r"https?://", url, re.I):
+                continue  # en-tête (« url »), ligne vide ou commentaire
+            tag_cell = ",".join(row[1:])  # étiquettes séparées par ; ou , (même si le CSV les a coupées en colonnes)
+            tags = [t.strip() for t in tag_cell.replace(",", ";").split(";") if t.strip()]
+            rows.append((url, tags))
     return rows
 
 
@@ -165,6 +170,63 @@ def extract(url: str) -> Article:
     title = _clean_title((meta.title if meta and meta.title else url).strip(), url)
     tags = _split(getattr(meta, "tags", None)) + _split(getattr(meta, "categories", None))
     return Article(url=url, title=title, text=text, tags=tags)
+
+
+# --- Articles fournis sous forme de fichiers markdown locaux (dossier input/articles_md/) ----------------------
+_NOISE_LINE = re.compile(
+    r"^(?:!\[[^\]]*\]\([^)]*\)"  # image seule
+    r"|\*\*[^*]{0,40}\*\*"  # petit texte en gras seul : date, nombre de likes, « Share »
+    r"|\[\*\*[^\]]{0,60}\*\*\]\([^)]*\)"  # lien en gras seul : auteur, nombre de commentaires
+    r"|\[[^\]]{0,60}\]\([^)]*\)"  # lien seul court : « Subscribe », profil
+    r"|\d{1,6})$",  # nombre seul
+    re.I,
+)
+
+
+def find_source_url(text: str) -> str | None:
+    """URL d'origine d'un article exporté de Substack : le lien « …/p/<slug>/comments » donne « …/p/<slug> »."""
+    m = re.search(r"(https?://[^\s)\]]+/p/[^\s/)\]]+)/comments", text)
+    return m.group(1) if m else None
+
+
+def clean_markdown(text: str) -> str:
+    """Retire le bruit d'un export (images, en-tête auteur/date/likes/« Share ») sans toucher au texte de l'article."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    # 1. en-tête : on retire les lignes de bruit AVANT le premier vrai paragraphe (au moins 20 mots)
+    first_para = next((i for i, l in enumerate(lines) if len(re.sub(r"[#*_\[\]()!]", " ", l).split()) >= 20
+                       and not l.lstrip().startswith("#")), len(lines))
+    head = [l for l in lines[:first_para] if l.strip() and not _NOISE_LINE.match(l.strip())]
+    body = lines[first_para:]
+    # 2. une longue phrase en titre (« ### Ed Feser argues… », chapeau de l'article) redevient un paragraphe
+    head = [re.sub(r"^#{1,6}\s+", "", l) if len(l.split()) > 12 else l for l in head]
+    # 3. images partout dans le corps
+    body = [l for l in body if not re.fullmatch(r"\s*!\[[^\]]*\]\([^)]*\)\s*", l)]
+    out = "\n\n".join(p for p in ("\n".join(head).strip(), "\n".join(body).strip()) if p)
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
+def _markdown_footnotes(text: str) -> str:
+    """Notes markdown « [^1] » + définitions « [^1]: texte » -> appels « [NOTE n] » et bloc final (même format que les pages web)."""
+    defs = re.findall(r"(?m)^\[\^([^\]]+)\]:\s*(.+(?:\n(?!\[\^|\n).+)*)", text)
+    if not defs:
+        return text
+    number = {label: i for i, (label, _) in enumerate(defs, start=1)}
+    body = re.sub(r"(?m)^\[\^[^\]]+\]:.*(?:\n(?!\[\^|\n).+)*\n?", "", text)
+    body = re.sub(r"\[\^([^\]]+)\]", lambda m: f" [NOTE {number[m.group(1)]}]" if m.group(1) in number else m.group(0), body)
+    block = "\n\n".join(f"NOTE {number[l]} : {' '.join(t.split())}" for l, t in defs)
+    return re.sub(r"\n{3,}", "\n\n", body).rstrip() + "\n\n--- NOTES DE BAS DE PAGE DE LA SOURCE ---\n\n" + block
+
+
+def article_from_markdown(path) -> Article:
+    """Article à traduire à partir d'un fichier .md : titre = nom du fichier, texte nettoyé, URL d'origine si retrouvée."""
+    from pathlib import Path
+
+    p = Path(path)
+    raw = p.read_text(encoding="utf-8-sig")
+    text = _markdown_footnotes(clean_markdown(raw))
+    if len(text) < 200:
+        raise RuntimeError(f"Texte trop court dans {p.name} ({len(text)} caractères)")
+    return Article(url=find_source_url(raw) or "", title=p.stem.strip(), text=text, tags=[])
 
 
 if __name__ == "__main__":

@@ -314,6 +314,9 @@ def fix_urls(html: str, rep: Report) -> str:
 # --- 6. Introduction du traducteur (italique + séparateur) ---------------------------------------------
 def build_intro(url: str, original_title: str) -> str:
     """« S'il y a une introduction du traducteur : la mettre en italique et la séparer du corps par un séparateur »."""
+    if not url:  # article venu d'un fichier .md local : pas d'adresse d'origine connue
+        return (f"<p><em>Cet article est la traduction de «{NBSP}{htmllib.escape(original_title)}{NBSP}».</em></p>\n"
+                "<hr>\n")
     return (f'<p><em>Cet article est la traduction de <a href="{htmllib.escape(url)}">{htmllib.escape(original_title)}</a>.</em></p>\n'
             "<hr>\n")
 
@@ -356,11 +359,25 @@ def clean_slug(text: str) -> str:
     return "-".join(kept)
 
 
+def slug_fits_title(slug: str, title: str) -> bool:
+    """Chaque mot du slug doit venir du titre (le LLM fait parfois des fautes : « euetes » pour « émeutes »)."""
+    t = _fold(htmllib.unescape(title)).lower()
+    t = re.sub(r"(?<=\d)\s?[,:.]\s?(?=\d)", "", t)
+    words = [w for w in re.split(r"[^a-z0-9]+", t) if w]
+    for w in slug.split("-"):
+        if w in words:
+            continue
+        # singulier/pluriel et dérivés proches : l'un est le début de l'autre (4 lettres minimum)
+        if not any(len(w) >= 4 and len(x) >= 4 and (x.startswith(w) or w.startswith(x)) for x in words):
+            return False
+    return True
+
+
 def make_slug(candidate: str | None, title: str) -> tuple[str, bool]:
-    """Identifiant final : celui proposé par le LLM (nettoyé), sinon construit à partir du titre.
-    Retourne (slug, venait_du_titre)."""
+    """Identifiant final : celui proposé par le LLM (nettoyé) s'il est cohérent avec le titre, sinon construit à partir
+    du titre. Retourne (slug, venait_du_titre)."""
     slug = clean_slug(candidate or "")
-    if slug:
+    if slug and slug_fits_title(slug, title):
         return slug, False
     return clean_slug(title), True
 

@@ -1,21 +1,23 @@
-"""Essai complet SANS publication : pour chaque URL du CSV, extrait, traduit, applique les règles éditoriales
-et écrit output/NN-*.html (aperçu), output/NN-*.source.md et output/review/*.md (fiche de relecture).
+"""Essai complet SANS publication : pour chaque article (URL du CSV ou fichier .md), charge, traduit, applique les règles
+éditoriales et écrit output/NN-*.html (aperçu), output/NN-*.source.md et output/review/*.md (fiche de relecture).
 
-Usage : python dry_run.py [--csv input/articles.csv] [--engine gemini] [--only N]
+Usage : python dry_run.py [--csv input/articles.csv | --md [input/articles_md]] [--engine gemini] [--only N]
 """
 import argparse
 import tomllib
 import traceback
 from pathlib import Path
 
-from extract import extract, read_csv
+from inputs import csv_jobs, label, md_jobs
 from llm_browser import Browser
 from pipeline import preview_html, slug, translate_article, write_review
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--csv", default="input/articles.csv")
+ap.add_argument("--md", nargs="?", const="input/articles_md", default=None, metavar="DOSSIER",
+                help="au lieu du CSV, traite chaque fichier .md du dossier (défaut : input/articles_md)")
 ap.add_argument("--engine", default=None, help="un seul moteur (sinon l'ordre de config.toml)")
-ap.add_argument("--only", type=int, default=None, help="ne traiter que la ligne N du CSV (1 = première)")
+ap.add_argument("--only", type=int, default=None, help="ne traiter que l'élément N de la liste (1 = premier)")
 args = ap.parse_args()
 
 cfg = tomllib.loads(Path("config.toml").read_text(encoding="utf-8"))
@@ -24,19 +26,19 @@ if args.engine:
 out = Path("output")
 out.mkdir(exist_ok=True)
 
-rows = read_csv(args.csv)
+jobs = md_jobs(args.md) if args.md is not None else csv_jobs(args.csv)
 first_no = args.only or 1
 if args.only:
-    rows = [rows[args.only - 1]]
+    jobs = [jobs[args.only - 1]]
 
 summary = []
 with Browser(cfg["llm"]["profile_dir"]) as browser:
-    for no, (url, csv_tags) in enumerate(rows, start=first_no):
-        print(f"\n[{no}] {url}", flush=True)
+    for no, (key, csv_tags, load) in enumerate(jobs, start=first_no):
+        print(f"\n[{no}] {label(key)}", flush=True)
         try:
-            art = extract(url)
+            art = load()
             words = len(art.text.split())
-            name = f"{no:02d}-{slug(url)}"
+            name = f"{no:02d}-{slug(label(key))}"
             (out / f"{name}.source.md").write_text(f"# {art.title}\n\n{art.text}", encoding="utf-8")
             print(f"    source : {art.title!r}, {words} mots", flush=True)
             if words > cfg["llm"]["max_words"]:
@@ -47,11 +49,11 @@ with Browser(cfg["llm"]["profile_dir"]) as browser:
             write_review(out / "review" / f"{name}.md", art, res)
             print(f"    traduction : {res.title!r}, tags {res.tags}", flush=True)
             print(f"    corrections auto : {len(res.fixes)} | avertissements : {len(res.warnings)} | à vérifier : {len(res.to_check)}", flush=True)
-            summary.append((no, "OK", url, f"{len(res.fixes)} corr., {len(res.warnings)} avert."))
+            summary.append((no, "OK", label(key), f"{len(res.fixes)} corr., {len(res.warnings)} avert."))
         except Exception as e:
             traceback.print_exc()
-            summary.append((no, "ECHEC", url, str(e)[:120]))
+            summary.append((no, "ECHEC", label(key), str(e)[:120]))
 
 print("\n===== RÉSUMÉ =====")
-for no, status, url, info in summary:
-    print(f"[{no}] {status:5s} {url} | {info}")
+for no, status, name, info in summary:
+    print(f"[{no}] {status:5s} {name} | {info}")

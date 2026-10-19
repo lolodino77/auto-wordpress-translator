@@ -27,6 +27,141 @@ class SpecsReading(unittest.TestCase):
             specs.load_specs("spec", {"Guide de rédaction des références bibliographiques.pdf": "MARQUEUR INEXISTANT"})
 
 
+class CsvReading(unittest.TestCase):
+    def read(self, text):
+        import os
+        import tempfile
+        from extract import read_csv
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as f:
+            f.write(text)
+        try:
+            return read_csv(f.name)
+        finally:
+            os.remove(f.name)
+
+    def test_without_header_like_the_editors_file(self):
+        """Cas réel : CSV d'une seule ligne, sans en-tête, avec une virgule finale."""
+        self.assertEqual(self.read("https://www.logos.com/grow/x/,\n"), [("https://www.logos.com/grow/x/", [])])
+
+    def test_with_header_and_tags(self):
+        rows = self.read("url,tags\nhttps://a.org/1,foi;Bible\nhttps://b.org/2,\n")
+        self.assertEqual(rows, [("https://a.org/1", ["foi", "Bible"]), ("https://b.org/2", [])])
+
+    def test_blank_lines_comments_and_bom_ignored(self):
+        rows = self.read("﻿url,tags\n\n# commentaire\nhttps://a.org/1\n")
+        self.assertEqual(rows, [("https://a.org/1", [])])
+
+    def test_tags_split_in_several_columns(self):
+        self.assertEqual(self.read("https://a.org/1,foi,Bible\n"), [("https://a.org/1", ["foi", "Bible"])])
+
+    def test_empty_file(self):
+        self.assertEqual(self.read(""), [])
+
+
+class MarkdownInput(unittest.TestCase):
+    """Fichiers .md locaux (input/articles_md/) : même pipeline que les URLs."""
+    SUBSTACK = (
+        "### Ed Feser argues that President Trump not only has the legal authority to suppress the riots, he has the "
+        "natural right and the moral duty to do so swiftly until order is restored.\n\n"
+        "![](https://substackcdn.com/image/fetch/w_36,h_36/x.jpeg)\n\n"
+        "[**Edward Feser**](https://substack.com/profile/58724253-edward-feser)\n\n**Jun 11, 2025**\n\n**45**\n\n"
+        "[**4**](https://www.postliberalorder.com/p/suppress-the-riots-mr-president/comments)\n\n**9**\n\n**Share**\n\n"
+        "As riots afflict Los Angeles and threaten to spread to other cities, progressives fret over whether the "
+        "administration is overreacting by deploying the National Guard and Marines. They are wrong, and the "
+        "administration is in the right. Riots are not like criminal activity of the kind best dealt with patiently.\n\n"
+        "![](https://substackcdn.com/image/fetch/w_1456/y.jpeg)\n\n"
+        "A riot, by contrast, involves a large number of people openly and brazenly showing contempt for the law, "
+        "and for the police and public officials who are sworn to uphold it. It is an ongoing event.\n"
+    )
+
+    def test_header_noise_and_images_removed_article_text_kept(self):
+        from extract import clean_markdown
+        out = clean_markdown(self.SUBSTACK)
+        for noise in ["substackcdn", "Edward Feser", "Jun 11, 2025", "**45**", "**Share**", "/comments", "![]"]:
+            self.assertNotIn(noise, out)
+        self.assertIn("As riots afflict Los Angeles", out)
+        self.assertIn("A riot, by contrast", out)
+
+    def test_long_standfirst_heading_becomes_a_paragraph(self):
+        from extract import clean_markdown
+        out = clean_markdown(self.SUBSTACK)
+        self.assertTrue(out.startswith("Ed Feser argues"))
+        self.assertNotIn("###", out)
+
+    def test_source_url_from_substack_comments_link(self):
+        from extract import find_source_url
+        self.assertEqual(find_source_url(self.SUBSTACK), "https://www.postliberalorder.com/p/suppress-the-riots-mr-president")
+        self.assertIsNone(find_source_url("aucun lien ici"))
+
+    def test_article_title_is_the_file_name(self):
+        import os
+        import tempfile
+        from extract import article_from_markdown
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "Suppress the Riots, Mr. President.md")
+            open(p, "w", encoding="utf-8").write(self.SUBSTACK)
+            art = article_from_markdown(p)
+        self.assertEqual(art.title, "Suppress the Riots, Mr. President")
+        self.assertTrue(art.url.endswith("/p/suppress-the-riots-mr-president"))
+
+    def test_too_short_file_is_an_error(self):
+        import os
+        import tempfile
+        from extract import article_from_markdown
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "x.md")
+            open(p, "w", encoding="utf-8").write("trop court")
+            with self.assertRaises(RuntimeError):
+                article_from_markdown(p)
+
+    def test_markdown_footnotes_become_note_markers(self):
+        from extract import _markdown_footnotes
+        out = _markdown_footnotes("Texte[^a] suite[^b].\n\n[^a]: Première note.\n[^b]: Seconde note.\n")
+        self.assertIn("Texte [NOTE 1] suite [NOTE 2].", out)
+        self.assertIn("NOTE 1 : Première note.", out)
+        self.assertIn("NOTE 2 : Seconde note.", out)
+        self.assertNotIn("[^", out)
+
+    def test_markdown_without_footnotes_untouched(self):
+        from extract import _markdown_footnotes
+        self.assertEqual(_markdown_footnotes("Texte simple."), "Texte simple.")
+
+    def test_jobs_listing_sorted_with_md_prefix(self):
+        import os
+        import tempfile
+        from inputs import label, md_jobs
+        with tempfile.TemporaryDirectory() as d:
+            for n in ("b.md", "A.md", "ignore.txt"):
+                open(os.path.join(d, n), "w", encoding="utf-8").write("x")
+            jobs = md_jobs(d)
+        self.assertEqual([k for k, _, _ in jobs], ["md:A.md", "md:b.md"])
+        self.assertEqual(label("md:A.md"), "A.md")
+        self.assertEqual(label("https://x.org/a"), "https://x.org/a")
+
+    def test_missing_folder_raises_clearly(self):
+        from inputs import md_jobs
+        with self.assertRaises(FileNotFoundError):
+            md_jobs("dossier-inexistant-xyz")
+
+    def test_intro_without_source_url(self):
+        intro = rules.build_intro("", "Suppress the Riots, Mr. President")
+        self.assertNotIn("<a ", intro)
+        self.assertIn("Suppress the Riots, Mr. President", intro)
+        self.assertTrue(intro.startswith("<p><em>Cet article est la traduction de"))
+        self.assertTrue(intro.rstrip().endswith("<hr>"))
+
+    def test_real_sample_file_if_present(self):
+        from pathlib import Path
+        from extract import article_from_markdown
+        p = Path("input/articles_md/Suppress the Riots, Mr. President.md")
+        if not p.exists():
+            self.skipTest("fichier d'exemple absent")
+        art = article_from_markdown(p)
+        self.assertEqual(art.title, "Suppress the Riots, Mr. President")
+        self.assertNotIn("substackcdn", art.text)
+        self.assertGreater(len(art.text.split()), 600)
+
+
 class SourceFootnotes(unittest.TestCase):
     """Cas réel (Logos) : le mode précision de trafilatura perd le texte de la note 1 et numérote mal la note 2."""
     # la note 2 est un <sup>2</sup> « nu » (sans lien), comme dans la vraie page
@@ -288,6 +423,18 @@ class Slug(unittest.TestCase):
         self.assertEqual(rules.make_slug("les de la", title)[1], True)  # que des mots vides -> repli sur le titre
         self.assertTrue(rules.make_slug(None, title)[0].startswith("chapitres-maternite"))
 
+    def test_slug_with_a_typo_is_replaced_by_one_built_from_the_title(self):
+        """Cas réel : Gemini a écrit « euetes » pour « émeutes »."""
+        title = "Réprimez les émeutes, Monsieur le Président"
+        self.assertEqual(rules.make_slug("reprimez-euetes-monsieur-president", title),
+                         ("reprimez-emeutes-monsieur-president", True))
+
+    def test_slug_words_may_be_singular_or_plural_forms_of_title_words(self):
+        self.assertTrue(rules.slug_fits_title("projet-dieu", "Les projets de Dieu"))
+        self.assertTrue(rules.slug_fits_title("projets-dieu-jeremie-2911", self.TITLE))
+        self.assertFalse(rules.slug_fits_title("projets-satan", self.TITLE))
+        self.assertFalse(rules.slug_fits_title("projets-dieu-jeremie-2912", self.TITLE))
+
     def test_parse_answer_reads_slug_in_any_order(self):
         a = parse_answer("TITRE: T\nTAGS: a\nSLUG: projets-dieu\nCATEGORIE: Théologie\n---\n<p>Le texte est la et des.</p>\n<!--FIN-->")
         self.assertEqual((a.slug, a.category), ("projets-dieu", "Théologie"))
@@ -304,7 +451,7 @@ class Slug(unittest.TestCase):
         cfg = tomllib.loads(Path("config.toml").read_text(encoding="utf-8"))
         cfg["llm"]["engines"] = ["gemini"]
         text = "Some text without footnotes at all. " * 10
-        answer = ("TITRE: Quels sont les « projets » de Dieu\nTAGS: a\nCATEGORIE: aucune\n"
+        answer = ("TITRE: Quels sont les « projets » de Dieu pour vous ? Ce que signifie vraiment Jérémie 29,11\nTAGS: a\nCATEGORIE: aucune\n"
                   "SLUG: Les-Projets-de-Dieu-Jérémie-29,11\n---\n<p>Le texte est la et des.</p>\n<!--FIN-->")
         res = translate_article(Article("https://example.com/a", "Original", text), cfg, FakeBrowser([answer]))
         self.assertEqual(res.slug, "projets-dieu-jeremie-2911")
@@ -418,6 +565,37 @@ class SelfHosted(unittest.TestCase):
         post_payload = [p for u, p in posted if u.endswith("/posts")][0]
         self.assertNotIn("tags", post_payload)
         self.assertEqual(post_payload["status"], "draft")
+
+    def test_site_restricting_rest_api_does_not_block_the_draft(self):
+        """Cas réel parlafoi.fr : Kadence Security répond 403 « itsec_rest_api_access_restricted » sur tags/catégories."""
+        import wp_selfhosted as ws
+        blocked = {"code": "itsec_rest_api_access_restricted", "data": {"status": 403}}
+
+        def get_map(url, params):
+            return self.resp(403, blocked)
+
+        def post_map(url, payload):
+            return self.resp(201, {"id": 77})
+
+        url, posted = self.run_create(get_map, post_map)
+        self.assertTrue(url.endswith("post=77&action=edit"))
+        payload = [p for u, p in posted if u.endswith("/posts")][0]
+        self.assertEqual(payload["status"], "draft")
+        self.assertNotIn("tags", payload)
+        self.assertNotIn("categories", payload)
+        self.assertTrue(any("itsec_rest_api_access_restricted" in w for w in ws.last_warnings))
+        self.assertTrue(any("Catégorie non posée" in w for w in ws.last_warnings))
+
+    def test_refused_draft_creation_raises_with_the_exact_server_error(self):
+        def get_map(url, params):
+            return self.resp(data=[])
+
+        def post_map(url, payload):
+            return self.resp(403, {"code": "rest_cannot_create", "message": "Désolé"})
+
+        with self.assertRaises(RuntimeError) as cm:
+            self.run_create(get_map, post_map, tags=(), cats=())
+        self.assertIn("rest_cannot_create", str(cm.exception))
 
     def test_categories_are_never_created(self):
         def get_map(url, params):

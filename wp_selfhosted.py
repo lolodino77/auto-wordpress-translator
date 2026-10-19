@@ -49,15 +49,32 @@ def authorize(site: str, username: str, app_password: str) -> dict:
 
 
 def list_categories(site: str) -> list[str]:
-    r = requests.get(_api(site, "categories"), params={"per_page": 100, "hide_empty": "false"}, auth=_auth(), timeout=TIMEOUT)
-    r.raise_for_status()
+    # pas de hide_empty : ce paramètre est refusé (403) à un compte Contributeur sur parlafoi.fr
+    r = requests.get(_api(site, "categories"), params={"per_page": 100}, auth=_auth(), timeout=TIMEOUT)
+    if r.status_code in (401, 403):  # les catégories sont publiques : nouvel essai sans identifiants
+        log.warning("Catégories refusées avec identifiants (HTTP %s %s) : nouvel essai anonyme", r.status_code, r.text[:200])
+        r = requests.get(_api(site, "categories"), params={"per_page": 100}, timeout=TIMEOUT)
+    if r.status_code != 200:
+        raise RuntimeError(f"Catégories illisibles : HTTP {r.status_code} {r.text[:300]}")
     return [htmllib.unescape(c["name"]) for c in r.json()]
 
 
+last_warnings: list[str] = []  # avertissements du dernier create_draft (repris dans la fiche de relecture)
+
+
+def _warn(msg: str) -> None:
+    last_warnings.append(msg)
+    log.warning(msg)
+
+
 def _term_id(site: str, taxonomy: str, name: str, create: bool) -> int | None:
-    """Identifiant d'une étiquette/catégorie par son nom. Création seulement si demandé et si le rôle le permet."""
+    """Identifiant d'une étiquette/catégorie par son nom, ou None. JAMAIS bloquant : si le site restreint l'accès (par
+    ex. plugin Kadence/iThemes Security : « itsec_rest_api_access_restricted »), le brouillon est créé sans cette valeur."""
     r = requests.get(_api(site, taxonomy), params={"search": name, "per_page": 100}, auth=_auth(), timeout=TIMEOUT)
-    r.raise_for_status()
+    if r.status_code != 200:
+        _warn(f"{taxonomy} « {name} » non posé(e) : lecture refusée par le site (HTTP {r.status_code} "
+              f"{r.text[:120]}). À ajouter à la main.")
+        return None
     for t in r.json():
         if htmllib.unescape(t["name"]).casefold() == name.casefold():
             return t["id"]
@@ -65,25 +82,28 @@ def _term_id(site: str, taxonomy: str, name: str, create: bool) -> int | None:
         c = requests.post(_api(site, taxonomy), json={"name": name}, auth=_auth(), timeout=TIMEOUT)
         if c.status_code in (200, 201):
             return c.json()["id"]
-        log.warning("Impossible de créer « %s » (%s %s) : à créer à la main", name, c.status_code, c.text[:120])
+        _warn(f"Impossible de créer {taxonomy} « {name} » (HTTP {c.status_code} {c.text[:120]}) : à créer à la main.")
     return None
 
 
 def create_draft(site: str, title: str, html: str, tags: list[str], categories: list[str] | None = None,
                  slug: str | None = None) -> str:
     """Crée un brouillon (status=draft, jamais autre chose). Retourne l'adresse de modification dans l'administration."""
+    last_warnings.clear()
     payload: dict = {"title": title, "content": html, "status": "draft"}
     if slug:
         payload["slug"] = slug
     tag_ids = [i for i in (_term_id(site, "tags", t, create=True) for t in tags) if i]
     if len(tag_ids) < len(tags):
-        log.warning("%d étiquette(s) sur %d non posée(s) (inexistantes et non créables par ce compte)",
-                    len(tags) - len(tag_ids), len(tags))
+        _warn(f"{len(tags) - len(tag_ids)} étiquette(s) sur {len(tags)} non posée(s) : {', '.join(tags)}")
     if tag_ids:
         payload["tags"] = tag_ids
     cat_ids = [i for i in (_term_id(site, "categories", c, create=False) for c in (categories or [])) if i]
     if cat_ids:
         payload["categories"] = cat_ids
+    if categories and "categories" not in payload:
+        _warn(f"Catégorie non posée : {', '.join(categories)} (illisible ou inconnue du site). À choisir à la main.")
     r = requests.post(_api(site, "posts"), json=payload, auth=_auth(), timeout=60)
-    r.raise_for_status()
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"Création du brouillon refusée : HTTP {r.status_code} {r.text[:400]}")
     return f"{base_url(site)}/wp-admin/post.php?post={r.json()['id']}&action=edit"
