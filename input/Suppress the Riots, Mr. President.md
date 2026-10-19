@@ -1,0 +1,35 @@
+### Ed Feser argues that President Trump not only has the legal authority to suppress the L.A. Riots, he has the natural right, and the moral duty to do so swiftly and harshly until order is restored.
+
+![](https://substackcdn.com/image/fetch/w_36,h_36,c_fill,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F48214278-16a8-43b0-8d06-9c704904eb09_449x628.jpeg)
+
+[**Edward Feser**](https://substack.com/profile/58724253-edward-feser)
+
+**Jun 11, 2025**
+
+**45**
+
+[**4**](https://www.postliberalorder.com/p/suppress-the-riots-mr-president/comments)
+
+**9**
+
+**Share**
+
+As riots afflict Los Angeles and threaten to spread to other cities, progressives fret over whether the Trump administration is overreacting by deploying the National Guard and Marines. They are wrong, and the administration is in the right. Riots are not like criminal activity of the kind best dealt with patiently and subtly. Of their nature they require an immediate and severe response. And under current circumstances, it is not unreasonable for the administration to judge that federal action is required in order to ensure this.
+
+![](https://substackcdn.com/image/fetch/w_1456,c_limit,f_auto,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Fb6f4a763-7a95-4b68-9c63-91848aaf6c8d_968x1210.jpeg)
+
+Rioters are very different from everyday offenders – thieves, murderers, and the like – who typically do their work in secret. Even robbers are typically seen only by their victims, and quickly flee the scene. The mode of such lawbreaking manifests an overall fear of the law and of police. These offenses are also typically committed on a small scale, by one or a handful of individuals, and directed only against other particular individuals rather than against the law as an institution. Moreover, police and other public officials are usually able to enter the picture only after the fact, to punish the crime rather than prevent it.
+
+A riot, by contrast, involves a large number of people openly and brazenly showing contempt for the law, and for the police and public officials who are sworn to uphold it. And it is not a brief episode that police can react to only after the fact, but an ongoing event that they can and must respond to as it happens. For public authorities to dither in the face of a riot, or to treat rioters with kid gloves, is to aid and abet the rioters in their aim of bringing the law and its representatives into contempt and making them appear ineffectual. Such toleration thus has an inherent tendency to weaken the state. In this way it is analogous to a failure to repel an act of war.
+
+Note that I say only that it is _analogous_ to this, not that it is exactly like this. I am not **claiming that rioters are morally on a par with invaders or fomenters of civil war, or that police or military forces may in general use lethal force in dealing with them. As Aquinas says of sedition in the broad sense of stirring up violent discord within a polity, it “is a special sin, having something in common with war and strife, and differing somewhat from them” (_Summa Theologiae_ II-II.42.1). Typically, rioters are not trying to overthrow the government. The point is that they nevertheless aim to _weaken_ its authority in a stronger way than ordinary criminals do. Their actions thus amount to an attack on the overall social order of which government is the head, even if it is an attack less extreme than that of an armed invasion or an attempt at secession or revolution.
+
+Something analogous to just war criteria thus apply to dealing with rioters. Now, some would no doubt claim that the current response doesn’t meet such criteria. For example, they might claim that the Trump administration lacks a just cause for suppressing the rioters. In particular, they might object to the Immigration and Customs Enforcement agency (ICE) operations that the rioters are responding to.
+
+But this objection has no force. A nation [has a right under natural law to enforce its borders](https://www.thepublicdiscourse.com/2025/03/97452/), and deporting those here illegally is part of such enforcement. Even if one were to object to the specifics of current government policy or the manner in which ICE is implementing it, the only legitimate remedy would be to work through the courts or the legislature to try to change it. Such personal objections, even if they were well-founded, can provide no justification for disobeying the law or encouraging others to do so – much less for burning cars, throwing stones at police officers, looting businesses, and so on. The government has not only a right but a duty to suppress such criminality.
+
+It might nevertheless be objected that the means deployed are excessive and thus unjust. But this is absurd. Police and National Guard have so far been making use of tear gas, flash bang grenades, rubber bullets, and the like. Being repelled with such weapons is unpleasant, but it is non-lethal and it is certainly deserved. Rioters are not merely expressing opinions, but (again) burning cars, vandalizing other property, looting businesses, throwing rocks at police, and engaging in other such violent behavior. They are like bullies who can be deterred only by a punch in the nose, or children throwing a temper tantrum and in need of a spanking. If anything, the police have been too restrained, and ought to have stopped the rioters in their tracks on day one with overwhelming force. Through harsh and sustained deployment of non-lethal weapons, as well as serious prison sentences, the rioters’ experience should be made so unpleasant that others will be strongly deterred from following their example.
+
+As to the question of federal intervention, some claim that President Trump has no right to send in the National Guard and Marines, and should leave the matter to local officials. But the rioters are interfering with the federal government’s operations, and [as others have shown](https://www.nationalreview.com/2025/06/president-trump-has-legal-authority-to-suppress-the-siege-in-l-a/), the president has the legal authority to intervene in order to protect such operations. Moreover, the Los Angeles Police Department [has acknowledged](https://nypost.com/2025/06/09/us-news/lapd-takes-down-protester-on-stilts-drags-him-away-at-an-anti-ice-riot/) that it wasquickly “overwhelmed” by the current riots. Nor should it be forgotten that, during the nationwide riots of 2020, progressive mayors and governors proved themselves unwilling to do what was necessary effectively to stop them. Federal intervention is thus not only legally defensible, but arguably the only way to ensure that what needs to be done will in fact be done.
+
+The key is speedily to deploy overwhelming, irresistible force to suppress riots and thereby make it clear to rioters that their efforts are futile – and to anyone tempted to emulate them that that the cost of doing so will be prohibitively high. Above all, public authorities must never permit a repeat of the anarchic summer of 2020.

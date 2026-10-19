@@ -1,9 +1,17 @@
-"""Test : l'application WordPress ne peut pas publier. Usage : python check_cannot_publish.py
+"""Test : l'application WordPress ne peut pas publier. Usage : python checks/wpcom/check_cannot_publish.py
 
 Crée un nouvel article de test (brouillon), tente de le publier, affiche le résultat.
 Sortie 0 = publication refusée (OK) ; 1 = publiée (le script la remet aussitôt en brouillon) ; 2 = non concluant.
 La copie de test reste à supprimer à la main dans WordPress.
 """
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]  # dossier du projet
+sys.path.insert(0, str(ROOT))  # pour importer wp.py / wp_selfhosted.py
+os.chdir(ROOT)  # config.toml, wp_token.json, wp_credentials.json sont lus depuis la racine du projet
+
 import json
 import re
 import sys

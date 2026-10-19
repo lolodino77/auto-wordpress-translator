@@ -7,6 +7,7 @@ Usage :
 """
 import argparse
 import logging
+import re
 import sqlite3
 import tomllib
 from pathlib import Path
@@ -24,8 +25,21 @@ logging.basicConfig(
 log = logging.getLogger("agent")
 
 
-def open_db() -> sqlite3.Connection:
-    db = sqlite3.connect("state.db")
+def backend(cfg: dict):
+    """Module d'accès à WordPress selon config.toml : « wpcom » (OAuth, wp.py) ou « selfhosted » (wp_selfhosted.py)."""
+    mode = cfg["wordpress"].get("mode", "wpcom")
+    if mode == "selfhosted":
+        import wp_selfhosted
+        return wp_selfhosted
+    if mode == "wpcom":
+        return wp
+    raise ValueError(f"mode inconnu dans config.toml : {mode!r} (attendu : 'wpcom' ou 'selfhosted')")
+
+
+def open_db(site: str) -> sqlite3.Connection:
+    """Une base d'état PAR SITE : un article déjà publié sur un site n'est pas considéré comme fait pour un autre."""
+    host = re.sub(r"[^a-z0-9]+", "-", site.lower().removeprefix("https://").removeprefix("http://")).strip("-")
+    db = sqlite3.connect(f"state-{host}.db")
     db.execute("CREATE TABLE IF NOT EXISTS jobs (url TEXT PRIMARY KEY, status TEXT, info TEXT)")
     return db
 
@@ -41,8 +55,8 @@ def process(url: str, csv_tags: list[str], cfg: dict, browser: Browser, categori
         raise RuntimeError("Article trop long, à découper à la main")
     res = translate_article(art, cfg, browser, categories)
     tags = list(dict.fromkeys(csv_tags + res.tags))  # tags de la source ignorés : en anglais
-    draft = wp.create_draft(cfg["wordpress"]["site"], res.title, res.html, tags,
-                            [res.category] if res.category else None, res.slug)
+    draft = backend(cfg).create_draft(cfg["wordpress"]["site"], res.title, res.html, tags,
+                                      [res.category] if res.category else None, res.slug)
     write_review(Path("output/review") / f"{slug(url)}.md", art, res, draft)
     for w in res.warnings:
         log.warning("%s : %s", url, w)
@@ -64,6 +78,13 @@ def main():
         import getpass
 
         wp_cfg = cfg["wordpress"]
+        if wp_cfg.get("mode", "wpcom") == "selfhosted":
+            print(f"Site auto-hébergé : {wp_cfg['site']}. Le mot de passe d'application est lié à l'utilisateur indiqué.")
+            who = backend(cfg).authorize(wp_cfg["site"], input("Nom d'utilisateur WordPress : ").strip(),
+                                         getpass.getpass("Mot de passe d'application (masqué) : ").strip())
+            print(f"Identifiants valides et enregistrés (wp_credentials.json). Compte : {who.get('slug')!r}, "
+                  f"rôle(s) : {who.get('roles')}")
+            return
         print(f"Droits demandés : {wp_cfg.get('scope') or '(défaut de WordPress.com : large)'} | site : {wp_cfg['site']}")
         wp.authorize(input("Client ID : ").strip(), getpass.getpass("Client secret (masqué) : ").strip(),
                      wp_cfg.get("scope") or None, wp_cfg["site"])
@@ -73,7 +94,7 @@ def main():
             b.login_session()
         return
 
-    db = open_db()
+    db = open_db(cfg["wordpress"]["site"])
     done = set() if args.force else {r[0] for r in db.execute("SELECT url FROM jobs WHERE status='published'")}
     todo = [(u, t) for i, (u, t) in enumerate(read_csv(args.csv), start=1)
             if (args.only is None or i == args.only) and (u not in done or args.only)]
@@ -81,7 +102,7 @@ def main():
     if not todo:
         return
     try:
-        categories = wp.list_categories(cfg["wordpress"]["site"])
+        categories = backend(cfg).list_categories(cfg["wordpress"]["site"])
     except Exception as e:  # sans catégories, le LLM n'en propose pas ; l'article reste créé
         categories = []
         log.warning("Catégories du site illisibles (%s) : aucune catégorie ne sera proposée", e)

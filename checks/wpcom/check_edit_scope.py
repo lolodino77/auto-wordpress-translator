@@ -1,5 +1,13 @@
 """Lecture seule : pour chaque article visible avec le jeton de l'application, affiche l'auteur et le droit de
-modification que WordPress indique (champ capabilities). Ne modifie rien. Usage : python check_edit_scope.py"""
+modification que WordPress indique (champ capabilities). Ne modifie rien. Usage : python checks/wpcom/check_edit_scope.py"""
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]  # dossier du projet
+sys.path.insert(0, str(ROOT))  # pour importer wp.py / wp_selfhosted.py
+os.chdir(ROOT)  # config.toml, wp_token.json, wp_credentials.json sont lus depuis la racine du projet
+
 import json
 import tomllib
 

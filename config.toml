@@ -1,7 +1,11 @@
 [wordpress]
-site = "gilbertgertrudetest.wordpress.com"
-# Droits demandés à WordPress.com lors de « python agent.py --auth » (moindre privilège). « posts » = créer/éditer des
-# articles ; « taxonomy » = étiquettes et catégories. Vide = droits par défaut, beaucoup plus larges.
+# mode = "wpcom"       : site hébergé chez WordPress.com (autorisation OAuth, wp.py)
+# mode = "selfhosted"  : WordPress auto-hébergé comme parlafoi.fr (mot de passe d'application, wp_selfhosted.py)
+mode = "selfhosted"
+# site = "gilbertgertrudetest.wordpress.com"   # exemple de site WordPress.com (mode = "wpcom")
+site = "parlafoi.fr"
+# Mode wpcom seulement : droits demandés à WordPress.com lors de « python agent.py --auth » (moindre privilège).
+# « posts » = créer/éditer des articles ; « taxonomy » = étiquettes et catégories. Vide = droits par défaut, bien plus larges.
 # Le jeton est aussi limité à ce seul site. À changer, il faut refaire --auth.
 scope = "posts taxonomy"
 

@@ -225,3 +225,5 @@ state.db
 wp_token.json
 agent.log
 output/
+wp_credentials.json
+state-*.db

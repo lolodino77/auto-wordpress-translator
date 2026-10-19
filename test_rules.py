@@ -1,4 +1,5 @@
 """Tests hors ligne des règles éditoriales (spec/). Lancer : python -m unittest test_rules -v"""
+import json
 import unittest
 
 import rules
@@ -353,6 +354,113 @@ class OAuthScope(unittest.TestCase):
         self.assertEqual(inspect.getsource(wp).count("requests.post("), 2)  # jeton OAuth + création du brouillon
         self.assertNotIn("requests.delete", inspect.getsource(wp))
         self.assertNotIn("requests.put", inspect.getsource(wp))
+
+
+class SelfHosted(unittest.TestCase):
+    """wp_selfhosted : brouillon via /wp-json/wp/v2 avec mot de passe d'application (réseau simulé)."""
+
+    @staticmethod
+    def resp(status=200, data=None):
+        from unittest.mock import MagicMock
+        r = MagicMock()
+        r.status_code = status
+        r.json.return_value = data
+        r.text = json.dumps(data) if data is not None else ""
+        r.raise_for_status.side_effect = None if status < 400 else RuntimeError(f"HTTP {status}")
+        return r
+
+    def run_create(self, get_map, post_map, tags=("Foi", "Nouveau"), cats=("Théologie",), slug="projets-dieu"):
+        from unittest.mock import patch
+        import wp_selfhosted as ws
+        posted = []
+
+        def fake_get(url, params=None, **kw):
+            return get_map(url, params)
+
+        def fake_post(url, json=None, **kw):
+            posted.append((url, json))
+            return post_map(url, json)
+
+        with patch.object(ws.requests, "get", fake_get), patch.object(ws.requests, "post", fake_post), \
+                patch.object(ws, "_auth", return_value=("agent", "xxxx")):
+            url = ws.create_draft("parlafoi.fr", "Titre", "<p>x</p>", list(tags), list(cats), slug)
+        return url, posted
+
+    def test_draft_payload_and_edit_url(self):
+        def get_map(url, params):
+            if url.endswith("/tags"):
+                return self.resp(data=[{"id": 7, "name": "Foi"}] if params["search"] == "Foi" else [])
+            return self.resp(data=[{"id": 3, "name": "Théologie"}])
+
+        def post_map(url, payload):
+            if url.endswith("/tags"):
+                return self.resp(201, {"id": 8})
+            return self.resp(201, {"id": 42})
+
+        url, posted = self.run_create(get_map, post_map)
+        self.assertEqual(url, "https://parlafoi.fr/wp-admin/post.php?post=42&action=edit")
+        post_payload = [p for u, p in posted if u.endswith("/posts")][0]
+        self.assertEqual(post_payload["status"], "draft")
+        self.assertEqual(post_payload["slug"], "projets-dieu")
+        self.assertEqual(post_payload["tags"], [7, 8])  # « Foi » existait, « Nouveau » a été créée
+        self.assertEqual(post_payload["categories"], [3])
+
+    def test_tag_not_creatable_by_contributor_is_skipped_not_fatal(self):
+        def get_map(url, params):
+            return self.resp(data=[])
+
+        def post_map(url, payload):
+            if url.endswith("/tags"):
+                return self.resp(403, {"code": "rest_cannot_create"})
+            return self.resp(201, {"id": 5})
+
+        _, posted = self.run_create(get_map, post_map, cats=())
+        post_payload = [p for u, p in posted if u.endswith("/posts")][0]
+        self.assertNotIn("tags", post_payload)
+        self.assertEqual(post_payload["status"], "draft")
+
+    def test_categories_are_never_created(self):
+        def get_map(url, params):
+            return self.resp(data=[])
+
+        def post_map(url, payload):
+            return self.resp(201, {"id": 5})
+
+        _, posted = self.run_create(get_map, post_map, tags=(), cats=("Inconnue",))
+        self.assertFalse(any(u.endswith("/categories") for u, _ in posted))
+
+    def test_code_never_publishes_updates_or_deletes(self):
+        import inspect
+        import wp_selfhosted
+        src = inspect.getsource(wp_selfhosted)
+        self.assertIn('"status": "draft"', src)
+        self.assertNotIn("requests.delete", src)
+        self.assertNotIn("requests.put", src)
+        self.assertNotIn("requests.patch", src)
+        self.assertNotRegex(src, r"""status["']\s*:\s*["'](publish|future|private|pending)["']""")
+
+    def test_backend_selection(self):
+        import agent
+        import wp
+        import wp_selfhosted
+        self.assertIs(agent.backend({"wordpress": {"mode": "selfhosted"}}), wp_selfhosted)
+        self.assertIs(agent.backend({"wordpress": {"mode": "wpcom"}}), wp)
+        self.assertIs(agent.backend({"wordpress": {}}), wp)  # défaut : ancien comportement
+        with self.assertRaises(ValueError):
+            agent.backend({"wordpress": {"mode": "autre"}})
+
+    def test_state_database_is_per_site(self):
+        import os
+        import agent
+        for site, expected in [("parlafoi.fr", "state-parlafoi-fr.db"),
+                               ("https://parlafoi.fr", "state-parlafoi-fr.db"),
+                               ("gilbertgertrudetest.wordpress.com", "state-gilbertgertrudetest-wordpress-com.db")]:
+            existed = os.path.exists(expected)
+            db = agent.open_db(site)
+            db.close()
+            self.assertTrue(os.path.exists(expected))
+            if not existed:
+                os.remove(expected)
 
 
 class Urls(unittest.TestCase):

@@ -1,5 +1,5 @@
 """Test : l'application ne peut NI modifier NI supprimer l'article d'un autre auteur.
-Usage : python check_cannot_edit_others.py
+Usage : python checks/wpcom/check_cannot_edit_others.py
 
 Choisit un article publié qui n'appartient pas au compte de l'application (auteur autre que celui des brouillons de
 l'app), puis :
@@ -9,6 +9,14 @@ Affiche chaque fois la réponse BRUTE du serveur et relit l'article. Si une acti
 (titre/contenu remis, ou restauration depuis la corbeille) et le dit clairement.
 Sortie 0 = les deux actions refusées (OK) ; 1 = au moins une est passée (puis annulée) ; 2 = test non concluant.
 """
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]  # dossier du projet
+sys.path.insert(0, str(ROOT))  # pour importer wp.py / wp_selfhosted.py
+os.chdir(ROOT)  # config.toml, wp_token.json, wp_credentials.json sont lus depuis la racine du projet
+
 import json
 import sys
 import tomllib
