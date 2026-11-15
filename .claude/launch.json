@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "traducteur",
+      "runtimeExecutable": "C:\\Users\\cvthb\\anaconda3\\envs\\auto-wordpress-translator\\python.exe",
+      "runtimeArgs": ["-m", "webapp", "--no-browser"],
+      "port": 8710
+    }
+  ]
+}

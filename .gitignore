@@ -227,3 +227,7 @@ agent.log
 output/
 wp_credentials.json
 state-*.db
+
+# Interface web
+frontend/node_modules/
+input/corbeille/

@@ -27,7 +27,8 @@ conda activate auto-wordpress-translator
 ```
 
 `setup_env.ps1` crée l'environnement conda `auto-wordpress-translator` à partir de `environment.yml` (Python 3.12 ;
-trafilatura, playwright, requests, truststore, pypdf) et télécharge le navigateur Chromium de Playwright.
+trafilatura, playwright, requests, truststore, pypdf, et fastapi, uvicorn, python-multipart pour l'interface) et télécharge le
+navigateur Chromium de Playwright.
 
 Si Gemini ou ChatGPT demandent une connexion, `python agent.py --login` ouvre les deux sites : connectez-vous à la main
 dans la fenêtre. Gemini a répondu sans connexion lors de nos essais ; ChatGPT, de façon moins fiable.
@@ -42,6 +43,7 @@ Tout se règle dans `config.toml` :
 | `[wordpress] site` | adresse du site |
 | `[wordpress] scope` | mode `wpcom` seulement : droits demandés à WordPress.com (`"posts taxonomy"`) |
 | `[specs] dir` | dossier des PDF de règles éditoriales (`spec/`), lus et injectés dans le prompt à chaque exécution |
+| `[templates] dir` | dossier des modèles d'articles déjà publiés (`articles_templates/`) dont la structure est reprise (voir [§4](#4-ce-que-fait-la-pipeline)) |
 | `[llm] engines` | ordre des moteurs : `["gemini", "gpt"]` (le suivant sert de secours) |
 | `[llm] max_words` | au-delà, l'article est refusé (à découper à la main) |
 | `[llm] prompt` | consigne envoyée au LLM |
@@ -66,6 +68,46 @@ Ne partagez jamais `wp_credentials.json` ni `wp_token.json` (ils sont exclus de 
 
 ## 3. Utilisation
 
+### Interface graphique (le plus simple)
+
+Double-cliquez sur **`Lancer le traducteur.bat`** (Windows), **`Lancer le traducteur.command`** (Mac) ou
+**`lancer-le-traducteur.sh`** (Linux). Une fenêtre noire s'ouvre (la laisser ouverte : la fermer arrête le programme), puis
+l'interface s'affiche dans le navigateur, à l'adresse `http://127.0.0.1:8710`. Équivalent en ligne de commande :
+
+```bash
+conda activate auto-wordpress-translator
+python -m webapp                # options : --port 8710, --no-browser
+```
+
+L'interface reprend l'apparence de l'administration WordPress :
+
+| Menu | Ce qu'on y fait |
+|---|---|
+| **Tableau de bord** | les trois étapes, un bouton pour tout traduire, l'état du compte et des réglages, l'activité récente |
+| **Articles à traduire** | la liste (CSV et fichiers `.md`) avec onglets Tous / À traduire / Brouillons créés / Erreurs, recherche, actions groupées ; au survol d'un titre : Traduire, Retraduire, Modification rapide (étiquettes, légende de l'illustration), Voir l'original, Retirer |
+| **Ajouter** | coller une ou plusieurs adresses, ou déposer des fichiers `.md` (glisser-déposer) |
+| **Traduction** | l'avancement en direct, article par article (lecture, traduction, création du brouillon), bouton « Arrêter après cet article », journal |
+| **Traductions faites** | chaque résultat s'ouvre dans une vue façon éditeur de blocs : texte mis en page, code HTML à copier, et à droite le panneau Article (statut, identifiant, catégorie, étiquettes, source) et l'onglet **À vérifier** (points signalés et gestes à faire dans WordPress, à cocher) |
+| **Réglages** | adresse et type du site, ordre des outils de traduction, compte WordPress (identifiant et mot de passe d'application, vérifiés auprès du site, avec l'affichage des droits réels) |
+| **Aide** | questions fréquentes |
+
+« Faire un essai » traduit sans rien envoyer à WordPress. L'interface et `python agent.py` partagent les mêmes fichiers
+(`input/articles.csv`, `input/articles_md/`, base d'état) : on peut passer de l'un à l'autre. Un article retiré de la liste qui était
+un fichier `.md` est déplacé dans `input/corbeille/`, jamais effacé.
+
+Sécurité : le serveur n'écoute que sur cet ordinateur (`127.0.0.1`), refuse toute requête adressée à un autre nom d'hôte et exige un
+en-tête spécial pour toute modification, ce qu'un autre site ouvert dans le navigateur ne peut pas envoyer.
+
+L'interface déjà construite est fournie dans `webapp/static/` : Node.js n'est nécessaire que pour la **modifier** (code dans `frontend/`,
+React + TypeScript + Vite) :
+
+```bash
+cd frontend
+npm install
+npm run build      # reconstruit webapp/static/
+npm run dev        # développement : http://127.0.0.1:5173 (avec python -m webapp lancé à côté)
+```
+
 ### Entrées possibles
 
 **Un CSV** (`input/articles.csv`) : une URL par ligne, étiquettes éventuelles en 2e colonne séparées par `;`. L'en-tête
@@ -76,8 +118,26 @@ https://www.logos.com/grow/min-what-jeremiah-2911-means/,
 https://exemple.org/article,foi;Bible
 ```
 
+La légende de l'illustration peut être donnée dans une 3e colonne `illustration` (entre guillemets si elle contient des virgules ;
+`*titre*` = italique) :
+
+```
+url,tags,illustration
+https://exemple.org/article,foi;Bible,"David Teniers le Jeune, *Énée fuyant Troie*, huile sur bois, 1655-1656"
+```
+
 **Un dossier de fichiers markdown** (`input/articles_md/`) : un `.md` par article. Le titre est le nom du fichier ; les images
-et l'en-tête d'un export Substack (auteur, date, likes) sont retirés ; l'URL d'origine est retrouvée quand c'est possible.
+et l'en-tête d'un export Substack (auteur, date, likes) sont retirés ; l'URL d'origine et l'auteur sont retrouvés quand c'est possible.
+Un en-tête facultatif en tête de fichier permet de les préciser :
+
+```
+---
+author: Edward Feser
+illustration: David Teniers le Jeune, *Énée fuyant Troie*, huile sur bois, 1655-1656
+---
+```
+
+Sans légende fournie, le brouillon contient un repère visible **« À COMPLÉTER »** à l'emplacement de la légende.
 
 ### Commandes
 
@@ -118,17 +178,24 @@ fichier .md ─► extract.py ─┘       │                (Gemini/ChatGPT)  
    avec espaces insécables, références bibliques « Livre Chapitre,Verset » (noms complets, abréviations de la Bible de Jérusalem
    en note ou en liste, fichier `bible_abbreviations.toml`), notes de bas de page en `[[…]]`, introduction du traducteur en italique
    suivie d'un séparateur, séparateur final s'il y a des notes, balises HTML non prévues retirées, URL nues transformées en liens.
-5. **Identifiant (slug)** : titre raccourci aux noms et mots importants (ex. `projets-dieu-jeremie-2911`), vérifié par rapport au titre.
-6. **Garde-fou sur les notes** : une traduction dont le nombre de notes ne correspond pas à la source (notes inventées, perdues,
+5. **Mise en forme d'après les modèles** (`templating.py`) : les articles de `articles_templates/` (articles déjà publiés, HTML copié de
+   l'éditeur de code) définissent la structure, lue et vérifiée à chaque exécution : **introduction du traducteur** en italique
+   (« Cet article est la traduction de l'article [lien] de [auteur], dans lequel [auteur] … » ; le résumé est écrit par le LLM), **séparateur**,
+   **corps** (un bloc WordPress par paragraphe, titre, liste ou citation), **séparateur**, **légende de l'illustration** en petite taille
+   (+ un séparateur final s'il y a des notes). Le balisage exact et les attributs des liens sont repris des modèles. Un modèle qui n'a
+   pas cette structure est refusé, avant tout appel au LLM.
+6. **Identifiant (slug)** : titre raccourci aux noms et mots importants (ex. `projets-dieu-jeremie-2911`), vérifié par rapport au titre.
+7. **Garde-fou sur les notes** : une traduction dont le nombre de notes ne correspond pas à la source (notes inventées, perdues,
    mal fermées) n'est **jamais publiée** (2 essais par moteur) ; le texte refusé est gardé dans `output/rejected/`.
-7. **Brouillon** : création avec `status=draft` uniquement. Le code n'envoie ni publication, ni modification, ni suppression.
-8. **Fiche de relecture** : `output/review/<article>.md` liste ce qui a été corrigé, les doutes, et les actions manuelles.
+8. **Brouillon** : création avec `status=draft` uniquement. Le code n'envoie ni publication, ni modification, ni suppression.
+9. **Fiche de relecture** : `output/review/<article>.md` liste ce qui a été corrigé, les doutes, et les actions manuelles.
 
 ## 5. Fichiers produits
 
 | Fichier ou dossier | Contenu |
 |---|---|
-| `output/review/*.md` | une fiche de relecture par article |
+| `output/review/*.md` | une fiche de relecture par article (`essai-*.md` pour un essai lancé depuis l'interface) |
+| `output/results/*.json` | résultat complet de chaque traduction (texte HTML, avertissements, points à vérifier), affiché par l'interface |
 | `output/rejected/` | traductions refusées par le garde-fou, pour inspection |
 | `output/NN-*.html`, `output/NN-*.source.md` | aperçu et texte source (`dry_run.py` seulement) |
 | `agent.log` | journal détaillé |
@@ -156,11 +223,12 @@ Pour un site WordPress.com, les équivalents sont dans `checks/wpcom/`.
 ## 7. Tests
 
 ```bash
-python -m unittest test_rules
+python -m unittest test_rules test_webapp
 ```
 
-Environ 100 tests vérifient le code avec un faux réseau (règles, notes, slug, CSV, fichiers `.md`, module WordPress). Ils ne contactent
-jamais WordPress ni les LLM et ne prouvent donc rien sur les droits réels du compte : pour cela, utilisez `checks/`.
+Environ 160 tests vérifient le code avec un faux réseau : `test_rules` (règles, notes, slug, CSV, fichiers `.md`, module WordPress) et
+`test_webapp` (API de l'interface : ajout, modification et retrait d'articles, protections, lancement et arrêt d'une traduction simulée,
+réglages). Ils ne contactent jamais WordPress ni les LLM et ne prouvent donc rien sur les droits réels du compte : pour cela, utilisez `checks/`.
 
 ## 8. Limites connues
 
@@ -190,12 +258,17 @@ jamais WordPress ni les LLM et ne prouvent donc rien sur les droits réels du co
 | `pipeline.py` | prompt, traduction avec garde-fou, fiche de relecture |
 | `llm_browser.py` | pilotage de Gemini / ChatGPT (Playwright) et lecture de la réponse |
 | `rules.py` | règles éditoriales et slug |
+| `templating.py` | mise en forme finale d'après les modèles de `articles_templates/` (introduction, barre, corps, barre, légende) |
+| `articles_templates/` | articles déjà publiés servant de modèles (HTML copié de l'éditeur de code de WordPress) |
 | `bible.py`, `bible_abbreviations.toml` | livres et abréviations bibliques |
 | `wp_selfhosted.py` | brouillons sur un WordPress auto-hébergé (API `wp-json`, mot de passe d'application) |
 | `wp.py` | brouillons sur WordPress.com (OAuth) |
 | `dry_run.py` | essai local sans création de brouillon |
 | `checks/` | contrôles des droits du compte (à lancer à la main) |
-| `test_rules.py` | tests automatiques |
+| `webapp/` | interface locale : serveur FastAPI/uvicorn (`server.py`), liste et résultats (`store.py`), traductions en arrière-plan (`runner.py`), interface construite (`static/`) |
+| `frontend/` | code de l'interface (React + TypeScript + Vite) |
+| `Lancer le traducteur.*`, `lancer-le-traducteur.sh` | lanceurs à double-clic (Windows, Mac, Linux) |
+| `test_rules.py`, `test_webapp.py` | tests automatiques |
 | `spec/` | règles éditoriales de la revue (PDF) |
 | `input/` | CSV et fichiers `.md` à traduire |
 

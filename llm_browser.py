@@ -137,6 +137,7 @@ class Answer(NamedTuple):
     html: str
     to_check: list[str]  # points signalés par le LLM pour la relecture humaine
     slug: str | None = None  # identifiant (URL) proposé par le LLM, à nettoyer avec rules.make_slug
+    summary: str | None = None  # résumé de la thèse de l'auteur, pour l'introduction du traducteur
 
 
 def parse_answer(raw: str) -> Answer:
@@ -146,7 +147,7 @@ def parse_answer(raw: str) -> Answer:
     m = re.search(r"TITRE\s*:\s*(.+?)\s*\n(.*?)\n\s*-{3,}\s*\n(.*)", raw, re.S)
     if not m:
         raise ValueError("Format de réponse inattendu (TITRE/TAGS/--- manquants)")
-    fields = {k.upper(): v.strip() for k, v in re.findall(r"(?m)^\s*(TAGS|CATEGORIE|SLUG)\s*:\s*(.*)$", m.group(2))}
+    fields = {k.upper(): v.strip() for k, v in re.findall(r"(?m)^\s*(TAGS|CATEGORIE|SLUG|RESUME)\s*:\s*(.*)$", m.group(2))}
     if not fields.get("TAGS"):
         raise ValueError("Format de réponse inattendu (TAGS manquant)")
     title, tags, category, slug, html = m.group(1), fields["TAGS"], fields.get("CATEGORIE"), fields.get("SLUG"), m.group(3).strip()
@@ -163,5 +164,6 @@ def parse_answer(raw: str) -> Answer:
     fr = len(re.findall(r"\b(le|la|les|des|et|est|que|une?)\b", html, re.I))
     if en > fr:
         raise ValueError("La réponse semble ne pas être traduite en français")
-    return Answer(title, [t.strip() for t in tags.split(",") if t.strip()], category and category.strip(), html, to_check,
-                  slug or None)
+    # séparateur = virgule, sauf entre deux chiffres (« Jérémie 29,11 » est UNE étiquette)
+    return Answer(title, [t.strip() for t in re.split(r"(?<!\d),|,(?!\d)", tags) if t.strip()], category and category.strip(), html, to_check,
+                  slug or None, fields.get("RESUME") or None)

@@ -1,0 +1,354 @@
+"""Serveur local de l'interface (FastAPI, servi par uvicorn). N'écoute que sur 127.0.0.1 : rien n'est exposé sur Internet.
+
+Protections (le serveur pilote un compte WordPress) :
+- seules les requêtes adressées à localhost / 127.0.0.1 sont acceptées (contre le « DNS rebinding ») ;
+- toute requête qui modifie quelque chose doit porter l'en-tête X-AWT: 1, qu'un autre site ouvert dans le navigateur
+  ne peut pas ajouter (contre les requêtes forgées depuis une autre page).
+"""
+import json
+import re
+import tomllib
+from pathlib import Path
+from typing import Callable
+
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from webapp.runner import Item, RunManager, real_execute
+from webapp.store import Store, StoreError
+
+ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+ENGINES = {"gemini", "gpt"}
+MODES = {"selfhosted", "wpcom"}
+
+
+# --- modèles des requêtes ---------------------------------------------------------------------------------
+class UrlsIn(BaseModel):
+    urls: list[str]
+    tags: list[str] = []
+    illustration: str = ""
+
+
+class ArticleEdit(BaseModel):
+    key: str
+    tags: list[str] | None = None
+    illustration: str | None = None
+
+
+class KeyIn(BaseModel):
+    key: str
+
+
+class RunIn(BaseModel):
+    keys: list[str] = []  # vide = tous les articles en attente
+    mode: str = "brouillon"  # brouillon | apercu
+    force: bool = False  # retraduire aussi ce qui a déjà un brouillon
+
+
+class SettingsIn(BaseModel):
+    site: str | None = None
+    mode: str | None = None
+    engines: list[str] | None = None
+
+
+class CredentialsIn(BaseModel):
+    username: str
+    app_password: str
+
+
+# --- réglages (config.toml) ---------------------------------------------------------------------------------
+def read_config(root: Path) -> dict:
+    return tomllib.loads((root / "config.toml").read_text(encoding="utf-8"))
+
+
+def _set_toml(text: str, key: str, value) -> str:
+    """Remplace la valeur d'une clé simple de config.toml sans toucher au reste (commentaires, prompt…)."""
+    pattern = rf'(?m)^({re.escape(key)}[ \t]*=[ \t]*)(?:"[^"\n]*"|\[[^\]\n]*\])'
+    if not re.search(pattern, text):
+        raise StoreError(f"Réglage « {key} » introuvable dans config.toml.")
+    return re.sub(pattern, lambda m: m.group(1) + json.dumps(value, ensure_ascii=False), text, count=1)
+
+
+def update_config(root: Path, changes: SettingsIn) -> None:
+    path = root / "config.toml"
+    text = path.read_text(encoding="utf-8")
+    if changes.site is not None:
+        site = changes.site.strip().rstrip("/")
+        if not site or " " in site or "." not in site:
+            raise StoreError("Adresse du site invalide (exemple : parlafoi.fr).")
+        text = _set_toml(text, "site", site)
+    if changes.mode is not None:
+        if changes.mode not in MODES:
+            raise StoreError("Type de site inconnu.")
+        text = _set_toml(text, "mode", changes.mode)
+    if changes.engines is not None:
+        engines = [e for e in changes.engines if e in ENGINES]
+        if not engines or len(engines) != len(changes.engines):
+            raise StoreError("Choisissez au moins un moteur de traduction (gemini ou gpt).")
+        text = _set_toml(text, "engines", engines)
+    tomllib.loads(text)  # le fichier doit rester valide
+    path.write_text(text, encoding="utf-8")
+
+
+# --- valeurs par défaut (remplaçables dans les tests) -------------------------------------------------------
+def default_statuses(root: Path, site: str) -> dict[str, tuple[str, str]]:
+    import sqlite3
+
+    host = re.sub(r"[^a-z0-9]+", "-", site.lower().removeprefix("https://").removeprefix("http://")).strip("-")
+    db_path = root / f"state-{host}.db"  # même fichier que agent.open_db
+    if not db_path.exists():
+        return {}
+    with sqlite3.connect(db_path) as db:
+        return {k: (s, i) for k, s, i in db.execute("SELECT url, status, info FROM jobs")}
+
+
+def default_account(root: Path, cfg: dict) -> dict:
+    """État du compte WordPress utilisé par l'application (lecture seule)."""
+    wp = cfg["wordpress"]
+    if wp.get("mode", "wpcom") != "selfhosted":
+        return {"mode": "wpcom", "configured": (root / "wp_token.json").exists(), "connected": None}
+    if not (root / "wp_credentials.json").exists():
+        return {"mode": "selfhosted", "configured": False, "connected": False}
+    import wp_selfhosted
+
+    try:
+        r = wp_selfhosted.me(wp["site"])
+    except Exception as e:
+        return {"mode": "selfhosted", "configured": True, "connected": False, "error": f"Site injoignable ({str(e)[:120]})"}
+    if r.status_code != 200:
+        return {"mode": "selfhosted", "configured": True, "connected": False,
+                "error": f"Identifiants refusés par le site (code {r.status_code})."}
+    return _account_summary(r.json())
+
+
+def _account_summary(me: dict) -> dict:
+    caps = me.get("capabilities", {})
+    return {
+        "mode": "selfhosted", "configured": True, "connected": True,
+        "username": me.get("slug"), "name": me.get("name"), "roles": me.get("roles", []),
+        "can_create": bool(caps.get("edit_posts")), "can_publish": bool(caps.get("publish_posts")),
+        "can_edit_others": bool(caps.get("edit_others_posts")), "can_delete_others": bool(caps.get("delete_others_posts")),
+    }
+
+
+def default_save_credentials(root: Path, cfg: dict, username: str, app_password: str) -> dict:
+    import wp_selfhosted
+
+    try:
+        me = wp_selfhosted.authorize(cfg["wordpress"]["site"], username, app_password)
+    except Exception as e:
+        raise StoreError(f"Connexion refusée : vérifiez le nom d'utilisateur et le mot de passe d'application. ({str(e)[:160]})")
+    return _account_summary(me)
+
+
+# --- application ------------------------------------------------------------------------------------------
+def create_app(root: Path, runs: RunManager | None = None,
+               statuses: Callable[[Path, str], dict] = default_statuses,
+               account: Callable[[Path, dict], dict] = default_account,
+               save_credentials: Callable[..., dict] = default_save_credentials) -> FastAPI:
+    root = Path(root).resolve()
+    store = Store(root)
+    runs = runs or RunManager(real_execute)
+    app = FastAPI(title="Traducteur WordPress", docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.middleware("http")
+    async def guard(request: Request, call_next):
+        host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]")
+        if host not in ALLOWED_HOSTS:
+            return JSONResponse({"detail": "Accès réservé à cet ordinateur."}, status_code=403)
+        if (request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS")
+                and request.headers.get("x-awt") != "1"):
+            return JSONResponse({"detail": "Requête refusée."}, status_code=403)
+        return await call_next(request)
+
+    @app.exception_handler(StoreError)
+    async def store_error(_, exc: StoreError):
+        return JSONResponse({"detail": str(exc)}, status_code=400)
+
+    def cfg() -> dict:
+        return read_config(root)
+
+    def all_articles() -> list[dict]:
+        c = cfg()
+        items = store.articles(statuses(root, c["wordpress"]["site"]), store.results())
+        if runs.current and runs.current.status == "running":
+            active = {i.key: i for i in runs.current.items if i.status in ("waiting", "running")}
+            for it in items:
+                if it["key"] in active:
+                    it["status"] = "running" if active[it["key"]].status == "running" else "queued"
+        return items
+
+    # --- état général -------------------------------------------------------------------------------------
+    @app.get("/api/status")
+    def status():
+        c = cfg()
+        try:
+            import templating
+
+            tpl = templating.load_templates(str(root / c.get("templates", {}).get("dir", "articles_templates")))
+            templates = {"ok": True, "count": len(tpl.sources)}
+        except Exception as e:
+            templates = {"ok": False, "count": 0, "error": str(e)}
+        spec_dir = root / c.get("specs", {}).get("dir", "spec")
+        items = all_articles()
+        wp = c["wordpress"]
+        creds = (root / ("wp_credentials.json" if wp.get("mode") == "selfhosted" else "wp_token.json")).exists()
+        return {
+            "site": wp["site"], "mode": wp.get("mode", "wpcom"), "engines": c["llm"]["engines"],
+            "account_configured": creds,
+            "templates": templates, "specs": len(list(spec_dir.glob("*.pdf"))) if spec_dir.is_dir() else 0,
+            "counts": {s: sum(1 for i in items if i["status"] == s) for s in ("pending", "done", "error", "running", "queued")},
+            "total": len(items), "running": runs.running,
+        }
+
+    # --- articles -----------------------------------------------------------------------------------------
+    @app.get("/api/articles")
+    def articles():
+        return all_articles()
+
+    @app.post("/api/articles/urls")
+    def add_urls(body: UrlsIn):
+        return store.add_urls(body.urls, [t.strip() for t in body.tags], body.illustration)
+
+    @app.post("/api/articles/files")
+    async def add_files(files: list[UploadFile] = File(...)):
+        added, errors = [], []
+        for f in files:
+            data = await f.read()
+            if len(data) > 5_000_000:
+                errors.append(f"« {f.filename} » est trop gros (5 Mo maximum).")
+                continue
+            try:
+                added.append(store.save_md(f.filename or "article.md", data))
+            except StoreError as e:
+                errors.append(str(e))
+        return {"added": added, "errors": errors}
+
+    @app.patch("/api/articles")
+    def edit_article(body: ArticleEdit):
+        if runs.running:
+            raise StoreError("Attendez la fin de la traduction en cours pour modifier un article.")
+        store.update_article(body.key, body.tags, body.illustration)
+        return {"ok": True}
+
+    @app.post("/api/articles/delete")
+    def delete_article(body: KeyIn):
+        if runs.running:
+            raise StoreError("Attendez la fin de la traduction en cours pour retirer un article.")
+        return {"ok": True, "message": store.delete_article(body.key)}
+
+    # --- exécutions ---------------------------------------------------------------------------------------
+    @app.post("/api/runs")
+    def start_run(body: RunIn):
+        if body.mode not in ("brouillon", "apercu"):
+            raise StoreError("Mode inconnu.")
+        c = cfg()
+        if body.mode == "brouillon":
+            wp = c["wordpress"]
+            needed = "wp_credentials.json" if wp.get("mode") == "selfhosted" else "wp_token.json"
+            if not (root / needed).exists():
+                raise StoreError("Configurez d'abord votre compte WordPress (menu Réglages).")
+        import inputs
+
+        jobs = inputs.csv_jobs(str(store.csv_path)) if store.csv_path.exists() else []
+        if store.md_dir.is_dir():
+            jobs += inputs.md_jobs(str(store.md_dir))
+        state = statuses(root, c["wordpress"]["site"])
+        wanted = set(body.keys)
+        items, skipped = [], 0
+        for key, tags, load in jobs:
+            if wanted and key not in wanted:
+                continue
+            already = state.get(key, ("", ""))[0] == "published"
+            if body.mode == "brouillon" and already and not body.force:
+                skipped += 1
+                continue
+            if not wanted and already:
+                continue
+            items.append(Item(key=key, label=inputs.label(key), tags=tags, load=load))
+        if not items:
+            raise StoreError("Rien à traduire : " + ("ces articles ont déjà un brouillon." if skipped else
+                                                      "aucun article en attente."))
+        try:
+            run = runs.start(body.mode, items)
+        except RuntimeError as e:
+            raise StoreError(str(e))
+        return run.public()
+
+    @app.get("/api/runs/current")
+    def current_run():
+        return runs.current.public() if runs.current else None
+
+    @app.post("/api/runs/stop")
+    def stop_run():
+        runs.stop()
+        return {"ok": True}
+
+    # --- résultats ----------------------------------------------------------------------------------------
+    @app.get("/api/results")
+    def results():
+        items = sorted(store.results().values(), key=lambda r: r.get("date", ""), reverse=True)
+        return [{k: r.get(k) for k in ("id", "key", "mode", "date", "title", "source_title", "source_url", "slug",
+                                        "draft_url", "engine")} | {"warnings": len(r.get("warnings", []))} for r in items]
+
+    @app.get("/api/results/{rid}")
+    def result(rid: str):
+        return store.result(rid)
+
+    # --- réglages et compte ---------------------------------------------------------------------------------
+    @app.get("/api/settings")
+    def get_settings():
+        c = cfg()
+        return {"site": c["wordpress"]["site"], "mode": c["wordpress"].get("mode", "wpcom"),
+                "engines": c["llm"]["engines"], "max_words": c["llm"].get("max_words")}
+
+    @app.put("/api/settings")
+    def put_settings(body: SettingsIn):
+        if runs.running:
+            raise StoreError("Attendez la fin de la traduction en cours pour changer les réglages.")
+        update_config(root, body)
+        return get_settings()
+
+    @app.get("/api/account")
+    def get_account():
+        return account(root, cfg())
+
+    @app.post("/api/account")
+    def post_account(body: CredentialsIn):
+        c = cfg()
+        if c["wordpress"].get("mode") != "selfhosted":
+            raise StoreError("Pour un site WordPress.com, l'autorisation se fait avec « python agent.py --auth ».")
+        if not body.username.strip() or not body.app_password.strip():
+            raise StoreError("Indiquez le nom d'utilisateur et le mot de passe d'application.")
+        return save_credentials(root, c, body.username.strip(), body.app_password.strip())
+
+    @app.get("/api/logs")
+    def logs(lines: int = 150):
+        f = root / "agent.log"
+        if not f.exists():
+            return {"lines": []}
+        return {"lines": f.read_text(encoding="utf-8", errors="replace").splitlines()[-max(1, min(lines, 1000)):]}
+
+    @app.get("/api/{rest:path}")
+    def api_not_found(rest: str):
+        raise HTTPException(404, "Adresse inconnue.")
+
+    # --- interface (fichiers construits par « npm run build » dans webapp/static) ---------------------------
+    static = Path(__file__).parent / "static"
+    if (static / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=static / "assets"), name="assets")
+
+    @app.get("/{path:path}")
+    def spa(path: str):
+        target = (static / path).resolve()
+        if path and target.is_file() and static.resolve() in target.parents:
+            return FileResponse(target)
+        index = static / "index.html"
+        if index.exists():
+            return FileResponse(index)
+        return HTMLResponse("<p>L'interface n'est pas encore construite : dans le dossier frontend, lancez "
+                            "<code>npm install</code> puis <code>npm run build</code>.</p>", status_code=503)
+
+    return app

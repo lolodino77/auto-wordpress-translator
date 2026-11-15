@@ -17,7 +17,7 @@ from pathlib import Path
 import wp
 from inputs import csv_jobs, label, md_jobs
 from llm_browser import Browser
-from pipeline import slug, translate_article, write_review
+from pipeline import save_result, slug, translate_article, write_review
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,20 +51,31 @@ def set_status(db, url, status, info=""):
     db.commit()
 
 
-def process(key: str, csv_tags: list[str], load, cfg: dict, browser: Browser, categories: list[str]) -> str:
-    """Pipeline d'un travail (URL du CSV ou fichier .md) : chargement, traduction, règles, brouillon, fiche de relecture."""
+def process(key: str, csv_tags: list[str], load, cfg: dict, browser: Browser, categories: list[str],
+            on_step=None, preview: bool = False) -> str:
+    """Pipeline d'un travail (URL du CSV ou fichier .md) : chargement, traduction, règles, brouillon, fiche de relecture.
+    on_step(étape) est appelé à chaque étape (pour l'interface). preview=True : tout sauf la création du brouillon."""
+    step = on_step or (lambda name: None)
     url = key
+    step("load")
     art = load()
     if len(art.text.split()) > cfg["llm"]["max_words"]:
         raise RuntimeError("Article trop long, à découper à la main")
+    step("translate")
     res = translate_article(art, cfg, browser, categories)
-    tags = list(dict.fromkeys(csv_tags + res.tags))  # tags de la source ignorés : en anglais
-    draft = backend(cfg).create_draft(cfg["wordpress"]["site"], res.title, res.html, tags,
-                                      [res.category] if res.category else None, res.slug)
-    res.warnings.extend(getattr(backend(cfg), "last_warnings", []))  # ex. étiquettes non posées (site restreint)
-    write_review(Path("output/review") / f"{slug(label(key))}.md", art, res, draft)
+    res.tags = list(dict.fromkeys(csv_tags + res.tags))  # tags de la source ignorés : en anglais
+    draft = ""
+    if not preview:
+        step("publish")
+        draft = backend(cfg).create_draft(cfg["wordpress"]["site"], res.title, res.html, res.tags,
+                                          [res.category] if res.category else None, res.slug)
+        res.warnings.extend(getattr(backend(cfg), "last_warnings", []))  # ex. étiquettes non posées (site restreint)
+    prefix = "essai-" if preview else ""  # un essai n'écrase pas la fiche de relecture d'un vrai brouillon
+    write_review(Path("output/review") / f"{prefix}{slug(label(key))}.md", art, res, draft)
+    save_result(key, art, res, draft, "apercu" if preview else "brouillon")
     for w in res.warnings:
         log.warning("%s : %s", url, w)
+    step("done")
     return draft
 
 

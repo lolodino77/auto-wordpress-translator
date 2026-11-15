@@ -10,3 +10,9 @@ dependencies:
       - requests
       - truststore
       - pypdf
+      # interface web locale (python -m webapp)
+      - fastapi
+      - uvicorn
+      - python-multipart
+      # tests de l'interface
+      - httpx

@@ -5,13 +5,19 @@ Un travail = (clé, étiquettes demandées, fonction qui charge l'article). La c
 l'URL pour le CSV, « md:<nom du fichier> » pour un fichier."""
 from pathlib import Path
 
-from extract import Article, article_from_markdown, extract, read_csv
+from extract import Article, article_from_markdown, extract, read_csv_rows
 
 Job = tuple[str, list[str], "callable[[], Article]"]
 
 
+def _load_url(url: str, illustration: str) -> Article:
+    art = extract(url)
+    art.illustration = illustration  # légende fournie dans le CSV (vide = repère « À COMPLÉTER »)
+    return art
+
+
 def csv_jobs(path: str) -> list[Job]:
-    return [(url, tags, (lambda u=url: extract(u))) for url, tags in read_csv(path)]
+    return [(r["url"], r["tags"], (lambda u=r["url"], ill=r["illustration"]: _load_url(u, ill))) for r in read_csv_rows(path)]
 
 
 def md_jobs(directory: str) -> list[Job]:

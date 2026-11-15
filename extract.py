@@ -7,21 +7,36 @@ from urllib.parse import urlparse
 import trafilatura
 
 
-def read_csv(path: str) -> list[tuple[str, list[str]]]:
-    """Lit le CSV : une URL par ligne, étiquettes éventuelles en 2e colonne (séparées par ;). L'en-tête « url,tags » est
-    facultatif : toute ligne dont la 1re cellule commence par http(s):// est une ligne de données."""
+def read_csv_rows(path: str) -> list[dict]:
+    """Lit le CSV : une URL par ligne. Colonnes facultatives, dans l'ordre : tags (séparés par ;), illustration (légende de
+    l'illustration, entre guillemets si elle contient des virgules ; *titre* = italique). L'en-tête « url,tags,illustration »
+    est facultatif ; s'il contient « illustration », les colonnes sont lues par leur nom. Sans en-tête, tout ce qui suit
+    l'URL est lu comme des étiquettes. -> [{"url", "tags", "illustration"}]"""
     rows = []
+    cols = None
     with open(path, encoding="utf-8-sig", newline="") as f:
         for row in csv.reader(f):
             if not row:
                 continue
-            url = row[0].strip()
-            if not re.match(r"https?://", url, re.I):
-                continue  # en-tête (« url »), ligne vide ou commentaire
-            tag_cell = ",".join(row[1:])  # étiquettes séparées par ; ou , (même si le CSV les a coupées en colonnes)
+            first = row[0].strip()
+            if first.lower() == "url":  # en-tête : on retient l'ordre des colonnes
+                cols = [c.strip().lower() for c in row]
+                continue
+            if not re.match(r"https?://", first, re.I):
+                continue  # ligne vide ou commentaire
+            if cols and "illustration" in cols:
+                cell = lambda name: (row[cols.index(name)].strip() if name in cols and cols.index(name) < len(row) else "")
+                tag_cell, illustration = cell("tags"), cell("illustration")
+            else:
+                tag_cell, illustration = ",".join(row[1:]), ""  # étiquettes séparées par ; ou , (même coupées en colonnes)
             tags = [t.strip() for t in tag_cell.replace(",", ";").split(";") if t.strip()]
-            rows.append((url, tags))
+            rows.append({"url": first, "tags": tags, "illustration": illustration})
     return rows
+
+
+def read_csv(path: str) -> list[tuple[str, list[str]]]:
+    """Comme read_csv_rows, mais seulement (url, étiquettes)."""
+    return [(r["url"], r["tags"]) for r in read_csv_rows(path)]
 
 
 @dataclass
@@ -30,6 +45,8 @@ class Article:
     title: str
     text: str  # markdown
     tags: list[str] = field(default_factory=list)
+    author: str = ""  # nom de l'auteur d'origine (métadonnées de la page ou en-tête de l'export), jamais deviné
+    illustration: str = ""  # légende de l'illustration fournie par l'éditeur (vide = repère « À COMPLÉTER »)
 
 
 def _split(value) -> list[str]:
@@ -169,7 +186,8 @@ def extract(url: str) -> Article:
     meta = trafilatura.extract_metadata(html)
     title = _clean_title((meta.title if meta and meta.title else url).strip(), url)
     tags = _split(getattr(meta, "tags", None)) + _split(getattr(meta, "categories", None))
-    return Article(url=url, title=title, text=text, tags=tags)
+    author = " ".join(str(getattr(meta, "author", "") or "").split())
+    return Article(url=url, title=title, text=text, tags=tags, author=author)
 
 
 # --- Articles fournis sous forme de fichiers markdown locaux (dossier input/articles_md/) ----------------------
@@ -217,16 +235,34 @@ def _markdown_footnotes(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", body).rstrip() + "\n\n--- NOTES DE BAS DE PAGE DE LA SOURCE ---\n\n" + block
 
 
+def _front_matter(raw: str) -> tuple[dict, str]:
+    """En-tête facultatif en tête de fichier, entre deux lignes « --- » : clés title, url, author, illustration."""
+    m = re.match(r"﻿?---[ \t]*\n(.*?)\n---[ \t]*\n", raw, re.S)
+    if not m:
+        return {}, raw
+    meta = {k.lower(): v.strip().strip("\"'") for k, v in re.findall(r"(?m)^(title|url|author|illustration)\s*:\s*(.+)$", m.group(1))}
+    return meta, raw[m.end():]
+
+
+def _substack_author(raw: str) -> str:
+    """Nom de l'auteur dans l'en-tête d'un export Substack : « [**Edward Feser**](https://substack.com/profile/…) »."""
+    m = re.search(r"\[\*\*([^*\]]+)\*\*\]\(https://substack\.com/profile/", raw)
+    return m.group(1).strip() if m else ""
+
+
 def article_from_markdown(path) -> Article:
     """Article à traduire à partir d'un fichier .md : titre = nom du fichier, texte nettoyé, URL d'origine si retrouvée."""
     from pathlib import Path
 
     p = Path(path)
     raw = p.read_text(encoding="utf-8-sig")
+    meta, raw = _front_matter(raw)
     text = _markdown_footnotes(clean_markdown(raw))
     if len(text) < 200:
         raise RuntimeError(f"Texte trop court dans {p.name} ({len(text)} caractères)")
-    return Article(url=find_source_url(raw) or "", title=p.stem.strip(), text=text, tags=[])
+    author = meta.get("author") or _substack_author(raw)
+    return Article(url=meta.get("url") or find_source_url(raw) or "", title=meta.get("title") or p.stem.strip(), text=text,
+                   tags=[], author=author, illustration=meta.get("illustration", ""))
 
 
 if __name__ == "__main__":

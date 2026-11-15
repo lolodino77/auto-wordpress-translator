@@ -641,6 +641,337 @@ class SelfHosted(unittest.TestCase):
                 os.remove(expected)
 
 
+class Templating(unittest.TestCase):
+    """Mise en forme d'après articles_templates/ : introduction, barre, corps, barre, légende."""
+
+    @classmethod
+    def setUpClass(cls):
+        import templating
+        cls.t = templating
+        cls.tpl = templating.load_templates("articles_templates")
+
+    def test_templates_are_read_and_valid(self):
+        self.assertEqual(len(self.tpl.sources), 2)
+        self.assertIn("wp:separator", self.tpl.separator)
+        self.assertIn("wp-block-separator", self.tpl.separator)
+        self.assertIn('"fontSize":"small"', self.tpl.caption_open)
+        self.assertEqual(self.tpl.link_target, "_blank")
+        self.assertIn("noopener", self.tpl.link_rel)
+
+    def test_assembled_article_has_the_template_structure(self):
+        intro = self.t.intro_inner("Original Title", "https://x.org/a", "Edward Feser", "soutient que le droit prime.")
+        html = self.t.assemble(intro, "<p>Un.</p><p>Deux.</p>", "", False, self.tpl)
+        names = [n for n, _ in self.t.block_sequence(html)]
+        self.assertEqual(names, ["paragraph", "separator", "paragraph", "paragraph", "separator", "paragraph"])
+        self.t.check_structure(html, "article assemblé")  # même contrôle que pour les modèles
+
+    def test_notes_add_a_final_separator_after_the_caption(self):
+        html = self.t.assemble("<em>i</em>", "<p>Un[[Note.]].</p>", "", True, self.tpl)
+        self.assertEqual([n for n, _ in self.t.block_sequence(html)][-3:], ["separator", "paragraph", "separator"])
+        self.t.check_structure(html, "avec notes", allow_final_separator=True)
+
+    def test_blocks_for_heading_list_and_quote(self):
+        blocks = self.t.to_blocks("<h3>Titre</h3><h4>Sous</h4><ul><li>a</li><li>b</li></ul><ol><li>c</li></ol>"
+                                  "<blockquote><p>Citation.</p></blockquote>")
+        text = "\n".join(blocks)
+        self.assertIn('<!-- wp:heading {"level":3} -->\n<h3 class="wp-block-heading">Titre</h3>', text)
+        self.assertIn('{"level":4}', text)
+        self.assertIn('<!-- wp:list -->\n<ul class="wp-block-list">', text)
+        self.assertIn('<!-- wp:list {"ordered":true} -->', text)
+        self.assertEqual(text.count("<!-- wp:list-item -->"), 3)
+        self.assertIn('<!-- wp:quote -->\n<blockquote class="wp-block-quote"><!-- wp:paragraph -->\n<p>Citation.</p>', text)
+
+    def test_stray_text_becomes_a_paragraph(self):
+        self.assertEqual(len(self.t.to_blocks("Texte sans balise<p>Un.</p>")), 2)
+
+    def test_external_links_get_the_template_attributes(self):
+        out = self.t.externalize_links('<p><a href="https://x.org/a">lien</a> <a href="https://y.org/b" target="_self">déjà</a></p>', self.tpl)
+        self.assertIn(f'<a href="https://x.org/a" target="{self.tpl.link_target}" rel="{self.tpl.link_rel}">', out)
+        self.assertIn('target="_self"', out)  # un lien déjà configuré n'est pas modifié
+
+    def test_intro_text_with_author_and_summary(self):
+        intro = self.t.intro_inner("Suppress the Riots, Mr. President", "https://x.org/p/a", "Edward Feser", "soutient que le droit prime.")
+        self.assertIn("Cet article est la traduction de l'article <a href=\"https://x.org/p/a\">Suppress the Riots, Mr. President</a>", intro)
+        self.assertIn("d'Edward Feser, dans lequel Edward Feser soutient que le droit prime.", intro)
+        self.assertTrue(intro.startswith("<em>") and intro.endswith("</em>"))
+
+    def test_summary_starting_with_a_capital_is_lowercased(self):
+        """Cas réel : « dans lequel Edward Feser Soutient que… »."""
+        intro = self.t.intro_inner("T", "", "Edward Feser", "Soutient que le droit prime.")
+        self.assertIn("dans lequel Edward Feser soutient que le droit prime.", intro)
+
+    def test_summary_starting_with_an_acronym_keeps_its_capitals(self):
+        intro = self.t.intro_inner("T", "", "Edward Feser", "ONU et droit.")
+        self.assertIn("Edward Feser ONU et droit", intro)
+
+    def test_title_repeated_as_first_heading_is_removed(self):
+        """Cas réel : le LLM a mis « Réprimer les émeutes, monsieur le Président » en <h3> en tête du corps."""
+        rep = rules.Report()
+        out = rules.drop_title_heading("<h3>Réprimer les émeutes, monsieur le Président</h3>\n<p>Texte.</p>",
+                                       "Réprimer les émeutes, Monsieur le Président", rep)
+        self.assertEqual(out, "<p>Texte.</p>")
+        self.assertTrue(any("Titre de l'article répété" in f for f in rep.fixes))
+
+    def test_a_different_first_heading_is_kept(self):
+        rep = rules.Report()
+        html = "<h3>Une vraie partie</h3><p>Texte.</p>"
+        self.assertEqual(rules.drop_title_heading(html, "Autre titre", rep), html)
+        self.assertEqual(rep.fixes, [])
+
+    def test_a_heading_later_in_the_body_is_kept(self):
+        rep = rules.Report()
+        html = "<p>Texte.</p><h3>Titre</h3>"
+        self.assertEqual(rules.drop_title_heading(html, "Titre", rep), html)
+
+    def test_intro_without_author_uses_the_author_word_never_a_pronoun(self):
+        intro = self.t.intro_inner("Titre", "", "", "explique comment.")
+        self.assertIn("dans lequel l’auteur explique comment.", intro)
+        self.assertNotRegex(intro, r"\b(il|elle)\b")
+        self.assertNotIn("<a ", intro)
+
+    def test_elision_before_vowel_only(self):
+        self.assertTrue(self.t.intro_inner("T", "", "Edward Feser", "").count("d'Edward"))
+        self.assertTrue(self.t.intro_inner("T", "", "Peter Leithart", "").count("de Peter"))
+
+    def test_caption_placeholder_is_visible_when_missing(self):
+        self.assertIn("À COMPLÉTER", self.t.caption_inner(""))
+
+    def test_caption_from_editor_text_with_italic_title(self):
+        c = self.t.caption_inner("David Teniers le Jeune, *Énée fuyant Troie*, huile sur bois, 1655-1656")
+        self.assertTrue(c.startswith("Illustration de couverture : David Teniers"))
+        self.assertIn("<em>Énée fuyant Troie</em>", c)
+        self.assertEqual(self.t.caption_inner("Illustration : X, *Y*").split(" : ")[0], "Illustration")
+
+    def test_nbsp_become_entities_like_the_templates(self):
+        html = self.t.assemble("<em>i</em>", "<p>Il dit « oui ».</p>", "", False, self.tpl)
+        self.assertIn("«&nbsp;oui&nbsp;»", html)
+        self.assertNotIn(" ", html)
+
+    def test_bad_template_is_refused_with_a_clear_message(self):
+        with self.assertRaises(ValueError) as cm:
+            self.t.check_structure("<!-- wp:paragraph -->\n<p>seul</p>\n<!-- /wp:paragraph -->", "modele_cassé.html")
+        self.assertIn("modele_cassé.html", str(cm.exception))
+
+    def test_missing_templates_folder_fails_before_any_llm_call(self):
+        with self.assertRaises(FileNotFoundError):
+            self.t.load_templates("dossier-sans-modeles-xyz")
+
+    def test_pipeline_output_follows_the_templates(self):
+        import tomllib
+        from pathlib import Path
+        from extract import Article
+        from pipeline import translate_article
+        cfg = tomllib.loads(Path("config.toml").read_text(encoding="utf-8"))
+        cfg["llm"]["engines"] = ["gemini"]
+        answer = ("TITRE: Un titre\nTAGS: a\nCATEGORIE: aucune\nSLUG: titre\nRESUME: soutient que le texte est la.\n---\n"
+                  "<h3>Partie</h3><p>Le texte est la et des.</p>\n<!--FIN-->")
+        # la source a UN intertitre : le <h3> traduit est légitime (sans intertitre à la source, il serait supprimé)
+        art = Article("https://x.org/p/a", "Original", "## Partie\n\n" + "Texte source sans note. " * 10, author="Edward Feser")
+        res = translate_article(art, cfg, FakeBrowser([answer]))
+        self.assertEqual([n for n, _ in self.t.block_sequence(res.html)],
+                         ["paragraph", "separator", "heading", "paragraph", "separator", "paragraph"])
+        self.assertIn("dans lequel Edward Feser soutient que le texte est la.", res.html)
+        self.assertIn("À COMPLÉTER", res.html)
+        self.assertTrue(any("Légende d'illustration" in w for w in res.warnings))
+
+
+class CsvIllustration(unittest.TestCase):
+    def read(self, text):
+        import os
+        import tempfile
+        from extract import read_csv_rows
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as f:
+            f.write(text)
+        try:
+            return read_csv_rows(f.name)
+        finally:
+            os.remove(f.name)
+
+    def test_illustration_column_with_commas_in_quotes(self):
+        rows = self.read('url,tags,illustration\nhttps://a.org/1,foi;Bible,"Teniers, *Énée fuyant Troie*, 1655"\n')
+        self.assertEqual(rows[0]["tags"], ["foi", "Bible"])
+        self.assertEqual(rows[0]["illustration"], "Teniers, *Énée fuyant Troie*, 1655")
+
+    def test_without_illustration_header_extra_columns_stay_tags(self):
+        rows = self.read("https://a.org/1,foi,Bible\n")
+        self.assertEqual((rows[0]["tags"], rows[0]["illustration"]), (["foi", "Bible"], ""))
+
+    def test_empty_illustration_cell(self):
+        rows = self.read("url,tags,illustration\nhttps://a.org/1,foi,\n")
+        self.assertEqual(rows[0]["illustration"], "")
+
+    def test_csv_jobs_carry_the_illustration_to_the_article(self):
+        import os
+        import tempfile
+        from unittest.mock import patch
+        import inputs
+        from extract import Article
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8") as f:
+            f.write('url,tags,illustration\nhttps://a.org/1,,"X, *Y*"\n')
+        try:
+            jobs = inputs.csv_jobs(f.name)
+        finally:
+            os.remove(f.name)
+        with patch.object(inputs, "extract", return_value=Article("https://a.org/1", "T", "texte")):
+            art = jobs[0][2]()
+        self.assertEqual(art.illustration, "X, *Y*")
+
+
+class MarkdownMetadata(unittest.TestCase):
+    BODY = ("Un long paragraphe de texte suffisamment étoffé pour passer le contrôle de longueur minimale du fichier. " * 3)
+
+    def load(self, content):
+        import os
+        import tempfile
+        from extract import article_from_markdown
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "Mon article.md")
+            open(p, "w", encoding="utf-8").write(content)
+            return article_from_markdown(p)
+
+    def test_front_matter_gives_illustration_author_and_url_and_is_not_translated(self):
+        art = self.load("---\nillustration: Teniers, *Énée*, 1655\nauthor: Edward Feser\nurl: https://x.org/p/a\n---\n" + self.BODY)
+        self.assertEqual((art.illustration, art.author, art.url), ("Teniers, *Énée*, 1655", "Edward Feser", "https://x.org/p/a"))
+        self.assertNotIn("illustration:", art.text)
+        self.assertNotIn("---", art.text)
+
+    def test_substack_author_is_read_from_the_header(self):
+        art = self.load("[**Edward Feser**](https://substack.com/profile/58724253-edward-feser)\n\n**Jun 11, 2025**\n\n" + self.BODY)
+        self.assertEqual(art.author, "Edward Feser")
+
+    def test_no_metadata_means_empty_values(self):
+        art = self.load(self.BODY)
+        self.assertEqual((art.author, art.illustration), ("", ""))
+
+
+class ParseTags(unittest.TestCase):
+    def tags(self, line):
+        return parse_answer(f"TITRE: T\nTAGS: {line}\n---\n<p>Le texte est la et des.</p>\n<!--FIN-->").tags
+
+    def test_verse_reference_is_one_tag(self):
+        """Cas réel : « Jérémie 29,11 » était coupé en « Jérémie 29 » et « 11 »."""
+        self.assertEqual(self.tags("Bible, Théologie, Jérémie 29,11, Jésus-Christ"),
+                         ["Bible", "Théologie", "Jérémie 29,11", "Jésus-Christ"])
+
+    def test_plain_commas_still_separate(self):
+        self.assertEqual(self.tags("a, b,c , d"), ["a", "b", "c", "d"])
+
+    def test_number_followed_by_a_tag_after_a_comma_and_space(self):
+        self.assertEqual(self.tags("XXe siècle, 1789, Révolution"), ["XXe siècle", "1789", "Révolution"])
+
+
+class ParseSummary(unittest.TestCase):
+    def test_resume_line_is_parsed(self):
+        a = parse_answer("TITRE: T\nTAGS: a\nSLUG: x\nRESUME: soutient que le droit prime.\n---\n<p>Le texte est la et des.</p>\n<!--FIN-->")
+        self.assertEqual(a.summary, "soutient que le droit prime.")
+
+    def test_resume_is_optional(self):
+        a = parse_answer("TITRE: T\nTAGS: a\n---\n<p>Le texte est la et des.</p>\n<!--FIN-->")
+        self.assertIsNone(a.summary)
+
+
+class NoInventedHeadings(unittest.TestCase):
+    """Garantie : une source sans titre ni intertitre ne donne JAMAIS de titre (cas réel : article de Feser, 3 titres inventés)."""
+    PARAS = "Texte source sans aucun intertitre, avec assez de mots pour ressembler à un paragraphe d'article. " * 6
+
+    @classmethod
+    def setUpClass(cls):
+        import tomllib
+        from pathlib import Path
+        cls.cfg = tomllib.loads(Path("config.toml").read_text(encoding="utf-8"))
+        cls.cfg["llm"]["engines"] = ["gemini"]
+
+    def run_pipeline(self, source_text, body, title="Un titre"):
+        import templating
+        from extract import Article
+        from pipeline import translate_article
+        answer = f"TITRE: {title}\nTAGS: a\nCATEGORIE: aucune\nSLUG: titre\n---\n{body}\n<!--FIN-->"
+        res = translate_article(Article("https://x.org/p/a", "Original title", source_text), self.cfg, FakeBrowser([answer]))
+        return res, [n for n, _ in templating.block_sequence(res.html)]
+
+    BODY_WITH_3_HEADINGS = ("<h3>Briser les émeutes</h3><p>Le texte est la et des.</p><h3>Deuxième partie</h3>"
+                            "<p>Le texte est la et des autres.</p><h4>Sous-partie</h4><p>Le texte est la et des mots.</p>")
+
+    def test_source_without_headings_gets_none_whatever_the_llm_wrote(self):
+        res, seq = self.run_pipeline(self.PARAS, self.BODY_WITH_3_HEADINGS)
+        self.assertNotIn("heading", seq)
+        self.assertNotIn("<h3", res.html)
+        self.assertNotIn("<h4", res.html)
+        self.assertNotIn("Briser les émeutes", res.html)
+        self.assertIn("Le texte est la et des autres.", res.html)  # les paragraphes restent
+        self.assertTrue(any("3 titre(s) inventé(s) supprimé(s)" in f for f in res.fixes))
+
+    def test_structure_is_still_the_template_one_after_removal(self):
+        _, seq = self.run_pipeline(self.PARAS, self.BODY_WITH_3_HEADINGS)
+        self.assertEqual(seq[:2], ["paragraph", "separator"])
+        self.assertEqual(seq[-2:], ["separator", "paragraph"])
+
+    def test_source_with_markdown_headings_keeps_the_translated_ones(self):
+        src = "## Première partie\n\n" + self.PARAS + "\n\n## Seconde partie\n\n" + self.PARAS
+        res, seq = self.run_pipeline(src, "<h3>Première partie</h3><p>Le texte est la et des.</p>"
+                                          "<h3>Seconde partie</h3><p>Le texte est la et des.</p>")
+        self.assertEqual(seq.count("heading"), 2)
+        self.assertFalse(any("inventé" in f for f in res.fixes))
+
+    def test_a_bold_only_line_in_the_source_counts_as_a_subheading(self):
+        src = "**Une vraie partie**\n\n" + self.PARAS
+        res, seq = self.run_pipeline(src, "<h3>Une vraie partie</h3><p>Le texte est la et des.</p>")
+        self.assertEqual(seq.count("heading"), 1)
+
+    def test_bold_inside_a_sentence_is_not_a_subheading(self):
+        from rules import source_headings
+        self.assertEqual(source_headings("Une phrase avec **du gras** au milieu.\n\nAutre phrase."), [])
+
+    def test_the_source_title_as_first_heading_is_not_counted(self):
+        from rules import source_headings
+        self.assertEqual(source_headings("# Original title\n\nTexte.", "Original title"), [])
+        self.assertEqual(source_headings("# Original title\n\n## Partie\n\nTexte.", "Original title"), ["Partie"])
+
+    def test_note_lines_and_separators_are_not_headings(self):
+        from rules import source_headings
+        text = "Texte.[NOTE 1]\n\n--- NOTES DE BAS DE PAGE DE LA SOURCE ---\n\nNOTE 1 : Voir ceci."
+        self.assertEqual(source_headings(text), [])
+
+    def test_all_heading_levels_are_removed_and_paragraphs_kept(self):
+        rep = rules.Report()
+        out = rules.remove_all_headings("<h1>A</h1><p>x</p><h2>B</h2><h5 class='c'>C</h5><p>y</p>", rep)
+        self.assertNotRegex(out, r"<h[1-6]")
+        self.assertIn("<p>x</p>", out)
+        self.assertIn("<p>y</p>", out)
+        self.assertIn("3 titre(s) inventé(s)", rep.fixes[0])
+
+    def test_nothing_to_remove_nothing_reported(self):
+        rep = rules.Report()
+        self.assertEqual(rules.remove_all_headings("<p>x</p>", rep), "<p>x</p>")
+        self.assertEqual(rep.fixes, [])
+
+    def test_prompt_tells_the_llm_there_is_no_heading(self):
+        from extract import Article
+        from pipeline import headings_info, make_prompt
+        art = Article("https://x.org/a", "Titre", self.PARAS)
+        self.assertIn("AUCUN titre ni intertitre", headings_info(art))
+        prompt = make_prompt(art, self.cfg, [])
+        self.assertIn("TITRES DE LA SOURCE : La source ne contient AUCUN titre", prompt)
+
+    def test_prompt_lists_the_source_headings_when_there_are_some(self):
+        from extract import Article
+        from pipeline import headings_info
+        art = Article("https://x.org/a", "Titre", "## Alpha\n\ntexte\n\n## Beta\n\ntexte")
+        info = headings_info(art)
+        self.assertIn("exactement 2 titre(s)/intertitre(s)", info)
+        self.assertIn("1. Alpha | 2. Beta", info)
+
+    def test_real_feser_markdown_has_no_headings(self):
+        from pathlib import Path
+        from extract import article_from_markdown
+        from rules import source_headings
+        p = Path("input/articles_md/Suppress the Riots, Mr. President.md")
+        if not p.exists():
+            self.skipTest("fichier d'exemple absent")
+        art = article_from_markdown(p)
+        self.assertEqual(source_headings(art.text, art.title), [])
+
+
 class Urls(unittest.TestCase):
     def test_bare_url_in_note_keeps_closing_brackets_outside_the_link(self):
         """Cas réel (brouillon 99) : WordPress avalait « .]] » dans l'URL nue."""
@@ -825,7 +1156,10 @@ class PipelineGate(unittest.TestCase):
         art = self.art("Texte. [NOTE 1] Suite du texte source.\n\n--- NOTES DE BAS DE PAGE DE LA SOURCE ---\n\nNOTE 1 : Voir ceci.")
         res = translate_article(art, self.CFG, FakeBrowser([raw("<p>Le texte[[Voir ceci.]] est la et des.</p>")]))
         self.assertIn("[[Voir ceci.]]", res.html)
-        self.assertTrue(res.html.rstrip().endswith("<hr>"))
+        # avec des notes : le modèle publié + un séparateur final (spec), après la légende
+        self.assertTrue(res.html.rstrip().endswith("<!-- /wp:separator -->"))
+        self.assertEqual([n for n, _ in __import__("templating").block_sequence(res.html)][-3:],
+                         ["separator", "paragraph", "separator"])
 
     def test_to_check_items_not_in_source_are_dropped(self):
         from pipeline import translate_article

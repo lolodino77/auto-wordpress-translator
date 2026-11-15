@@ -31,6 +31,18 @@ print(f"slug (identifiant) : {p['slug']!r} | catégories : {p.get('categories')}
 print(f"{len(text.split())} mots | titres h3 : {len(re.findall('<h3', content))}, h4 : {len(re.findall('<h4', content))} | "
       f"notes [[ ]] : {len(notes)} ('[[' {content.count('[[')} / ']]' {content.count(']]')}) | se termine par <hr> : "
       f"{content.rstrip().endswith('<hr>')}")
+import templating  # structure attendue : celle des modèles de articles_templates/
+
+seq = [n for n, _ in templating.block_sequence(content)]
+try:
+    templating.check_structure(content, f"brouillon {p['id']}", allow_final_separator=True)
+    verdict = "CONFORME aux modèles (introduction, barre, corps, barre, légende)"
+except ValueError as e:
+    verdict = f"NON CONFORME : {e}"
+print(f"structure : {verdict}")
+print(f"blocs : {len(seq)} | début {seq[:3]} … fin {seq[-3:]} | repère « À COMPLÉTER » : {'À COMPLÉTER' in content}")
+intro = re.search(r"<p><em>(Cet article est la traduction.*?)</em></p>", content, re.S)
+print(f"introduction : {html.unescape(re.sub(r'<[^>]+>', '', intro.group(1)))[:300] if intro else '(absente)'}")
 print(f"début : {re.sub(chr(10), ' ', content[:260])}")
 for n in notes:
     print("  note :", re.sub(r"\s+", " ", html.unescape(n))[:170])

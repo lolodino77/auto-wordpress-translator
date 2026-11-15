@@ -1,3 +1,9 @@
 trafilatura
 playwright
 requests
+truststore
+pypdf
+fastapi
+uvicorn
+python-multipart
+httpx

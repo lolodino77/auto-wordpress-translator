@@ -397,6 +397,43 @@ def check(html: str, rep: Report) -> None:
         rep.warnings.append("Titre H1/H2 résiduel.")
 
 
+def drop_title_heading(html: str, title: str, rep: Report) -> str:
+    """Le LLM remet parfois le titre de l'article en tête du corps (« <h3>Titre</h3> ») : c'est déjà le titre WordPress.
+    Retiré seulement s'il est IDENTIQUE au titre traduit (accents, casse et ponctuation ignorés)."""
+    m = re.match(r"\s*<h([1-6])\b[^>]*>(.*?)</h\1>\s*", html, re.S)
+    if not m:
+        return html
+
+    def norm(s: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", _fold(htmllib.unescape(_TAG.sub("", s))).lower())
+
+    if norm(m.group(2)) and norm(m.group(2)) == norm(title):
+        rep.fixes.append("Titre de l'article répété en tête du corps : supprimé (c'est déjà le titre de l'article WordPress).")
+        return html[m.end():]
+    return html
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _fold(htmllib.unescape(_TAG.sub("", s))).lower())
+
+
+def source_headings(text: str, title: str = "") -> list[str]:
+    """Titres et intertitres de la SOURCE (markdown) : lignes « # … » et lignes entièrement en gras (« **Titre** »,
+    usage courant comme intertitre). Le titre de l'article lui-même n'est pas compté."""
+    heads = [m.group(1).strip() for m in re.finditer(r"(?m)^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", text)]
+    heads += [m.group(1).strip() for m in re.finditer(r"(?m)^[ \t]*(?:\*\*|__)([^*_\n]{3,150}?)(?:\*\*|__)[ \t]*$", text)]
+    return [h for h in heads if not (title and _norm(h) == _norm(title))]
+
+
+def remove_all_headings(html: str, rep: Report) -> str:
+    """La source n'a AUCUN titre ni intertitre : tout titre de la traduction est inventé et supprimé (le texte
+    des paragraphes reste)."""
+    out, n = re.subn(r"\s*<h[1-6]\b[^>]*>.*?</h[1-6]>\s*", "\n", html, flags=re.S | re.I)
+    if n:
+        rep.fixes.append(f"{n} titre(s) inventé(s) supprimé(s) : la source n'a aucun titre ni intertitre.")
+    return out.strip()
+
+
 def apply_all(html: str, abbrevs: dict[str, str] | None = None) -> tuple[str, Report]:
     rep = Report()
     html = fix_tags(html, rep)

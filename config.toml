@@ -9,6 +9,10 @@ site = "parlafoi.fr"
 # Le jeton est aussi limité à ce seul site. À changer, il faut refaire --auth.
 scope = "posts taxonomy"
 
+[templates]
+dir = "articles_templates"         # articles déjà publiés (HTML copié de l'éditeur de code) : leur structure et leur balisage
+                                   # sont repris par les nouveaux articles (introduction, barre, corps, barre, légende)
+
 [specs]
 dir = "spec"                       # tous les PDF de ce dossier sont lus et injectés dans le prompt
 
@@ -32,7 +36,7 @@ Tu dois en plus respecter À LA LETTRE les règles éditoriales de la revue, rep
 ATTENTION : les exemples qui figurent dans ces règles (noms d'auteurs, titres de livres, références, phrases d'exemple) servent UNIQUEMENT à illustrer la mise en forme. Ils ne font PAS partie de l'article : n'en reproduis aucun, ne les cite pas, ne les range pas dans la liste « à vérifier ». Ne traduis, ne cite et ne signale que ce qui se trouve dans l'article source ci-dessous. Si l'article source ne contient aucune note de bas de page (aucun appel [NOTE n]), ta traduction ne contient AUCUNE note [[ ]] : n'invente jamais de note, de référence, d'éditeur, de ville ni d'année absents de la source ; une référence en ligne dans le texte (ex. « (Auteur, titre, 100) ») reste telle quelle dans le texte.
 
 Application concrète de ces règles dans ta réponse :
-1. Titres en <h3>, sous-titres en <h4>. N'utilise jamais <h1> ni <h2>.
+1. Titres en <h3>, sous-titres en <h4>. N'utilise jamais <h1> ni <h2>. TITRES DE LA SOURCE : {headings_info}
 2. Références bibliques sous la forme « Livre Chapitre,Verset » (virgule, pas deux-points : « Jérémie 29,11 »). Écris le nom du livre en toutes lettres (le programme abrège ensuite quand la règle l'exige). Noms des livres de la Segond 21 : Genèse, Exode, Lévitique, Nombres, Deutéronome, Josué, Juges, Ruth, 1 Samuel, 2 Samuel, 1 Rois, 2 Rois, 1 Chroniques, 2 Chroniques, Esdras, Néhémie, Esther, Job, Psaumes, Proverbes, Ecclésiaste, Cantique des Cantiques, Esaïe, Jérémie, Lamentations, Ezéchiel, Daniel, Osée, Joël, Amos, Abdias, Jonas, Michée, Nahum, Habakuk, Sophonie, Aggée, Zacharie, Malachie, Matthieu, Marc, Luc, Jean, Actes, Romains, 1 Corinthiens, 2 Corinthiens, Galates, Ephésiens, Philippiens, Colossiens, 1 Thessaloniciens, 2 Thessaloniciens, 1 Timothée, 2 Timothée, Tite, Philémon, Hébreux, Jacques, 1 Pierre, 2 Pierre, 1 Jean, 2 Jean, 3 Jean, Jude, Apocalypse.
 3. Siècles et ordinaux : écris XX<sup>e</sup> (jamais XXème ni XXe sans balise).
 4. Notes de bas de page : dans la source, les appels de note sont marqués [NOTE n] et le texte des notes est donné en fin de source (bloc « NOTE n : ... »). Traduis chaque note et place-la en ligne, à l'endroit de son appel [NOTE n], entre doubles crochets [[ ... ]], AVANT toute ponctuation (« texte[[note]]. »). Supprime les marqueurs [NOTE n] et le bloc final. N'INVENTE JAMAIS une note : il doit y avoir exactement autant de notes que d'appels, et chacune traduit le texte de la source. Chaque note se termine par une ponctuation. Ajoute « [Traduction libre] » au début d'une note UNIQUEMENT si elle cite un texte (citation) que tu as traduit toi-même (ex. : [[[Traduction libre] citation traduite, référence.]]). Une simple note de l'auteur traduite ne reçoit ni « [Traduction libre] » ni « (NDT.) ». N'écris une note de traducteur (terminée par « (NDT.). ») que si elle est indispensable à la compréhension (jeu de mots ou terme intraduisible) ; n'en écris JAMAIS pour commenter, corriger ou critiquer l'auteur, ni pour ajouter une information qui n'est pas dans la source.
@@ -51,6 +55,7 @@ TITRE: <titre traduit, sans nom du site>
 TAGS: <3 à 6 étiquettes en français, séparées par des virgules>
 CATEGORIE: <UNE seule catégorie, exactement l'une de celles-ci : {categories}>
 SLUG: <identifiant de l'URL : 2 à 5 mots-clés en minuscules, sans accents, séparés par des tirets>
+RESUME: <UNE phrase (40 mots maximum) qui résume la thèse de l'auteur de l'article source, sans sujet : commence par un verbe conjugué à la 3e personne du présent (« soutient que … », « explique comment … »), n'invente rien qui ne soit dans le texte source, sans pronom (ni il ni elle)>
 ---
 <corps de l'article en HTML simple : h3, h4, p, ul, ol, li, blockquote, a href, em, strong, sup, hr ; sans html/body/h1>
 <!--A_VERIFIER: ... -->
