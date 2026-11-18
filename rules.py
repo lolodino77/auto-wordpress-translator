@@ -36,6 +36,78 @@ def _text_only(html: str) -> str:
     return htmllib.unescape(_TAG.sub(" ", html))
 
 
+# --- 0a. Restes de Markdown dans la réponse du LLM -> HTML -------------------------------------------------
+# La source lui est donnée en Markdown ([texte](adresse), *italique*, **gras**). Il doit répondre en HTML mais recopie
+# parfois la syntaxe Markdown, qui s'afficherait telle quelle dans WordPress (« [Gavin Ortlund](https://…) »).
+_MD_URL = r"(?:[^\s()<>]|\([^\s()<>]*\))+"  # adresse : parenthèses équilibrées permises (ex. Wikipédia « Foo_(bar) »)
+_MD_TEXT = r"(?:[^\[\]<]|<(?!/?a\b)[^>]*>)+?"  # texte du lien : balises en ligne permises (<em>…), jamais <a>
+_MD_LINK = re.compile(
+    r"(?P<img>!)?\[(?P<text>" + _MD_TEXT + r")\]\(\s*"
+    r"(?:<a\s[^>]*?href=\"(?P<url_a>[^\"]+)\"(?P<attrs>[^>]*)>(?:(?!</a>)[\s\S])*</a>"  # adresse déjà changée en lien
+    r"|<(?P<url_b>[^<>\s]+)>"  # [texte](<adresse>)
+    r"|(?P<url>" + _MD_URL + r"))"
+    r"(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)"  # titre facultatif : [texte](adresse "titre")
+)
+_AUTOLINK = re.compile(r"<((?:https?://|mailto:)[^\s<>\"]+)>", re.I)  # <https://…> (sinon pris pour une balise)
+_MD_LEFTOVER = re.compile(r"\[[^\[\]]{1,200}\]\((?:https?:|mailto:|<|/|#|www\.)", re.I)
+_MD_STRONG = re.compile(r"(?<![\w*\\])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w*])|(?<![\w\\])__(?=\S)(.+?)(?<=\S)__(?!\w)")
+_MD_EM = re.compile(r"(?<![\w*\\])\*(?=[^\s*])([^*\n]+?)(?<=[^\s*])\*(?![\w*])")
+
+
+def fix_markdown(html: str, rep: Report) -> str:
+    """Liens, images et mises en forme Markdown restés dans la réponse -> HTML. À appliquer EN PREMIER : avant fix_tags
+    (qui effacerait « <https://…> » comme une balise inconnue) et avant fix_urls (qui ne relierait que l'adresse, en
+    laissant « [texte]( … ) » autour). Répare aussi la forme déjà abîmée « [texte](<a href="…">…</a>) »."""
+    links = images = emphasis = 0
+    unresolved: list[str] = []
+
+    def link(m: re.Match) -> str:
+        nonlocal links, images
+        if m.group("img"):  # les illustrations sont choisies à la main : pas d'image venue de la source
+            images += 1
+            return ""
+        url = (m.group("url_a") or m.group("url_b") or m.group("url") or "").strip()
+        text = m.group("text").strip()
+        lead = " " if m.start() and m.string[m.start() - 1] == ")" else ""  # « (@auteur)[date](…) » d'un tweet
+        if url.lower().startswith("www."):
+            url = "https://" + url
+        if not re.match(r"(?i)(?:https?://|mailto:)", url):  # lien relatif ou ancre : adresse incomplète
+            unresolved.append(url)
+            return lead + text
+        links += 1
+        href = url.replace('"', "%22").replace(" ", "%20")
+        return f'{lead}<a href="{href}"{m.group("attrs") or ""}>{text}</a>'
+
+    def autolink(m: re.Match) -> str:
+        nonlocal links
+        links += 1
+        return f'<a href="{m.group(1)}">{m.group(1)}</a>'
+
+    def emph(tok: str) -> str:
+        nonlocal emphasis
+        if "://" in tok:  # une adresse affichée peut contenir * ou __ : on n'y touche pas
+            return tok
+        tok, n1 = _MD_STRONG.subn(lambda m: f"<strong>{m.group(1) or m.group(2)}</strong>", tok)
+        tok, n2 = _MD_EM.subn(lambda m: f"<em>{m.group(1)}</em>", tok)
+        emphasis += n1 + n2
+        return tok
+
+    html = _MD_LINK.sub(link, html)
+    html = _AUTOLINK.sub(autolink, html)
+    html = _map_text(html, emph)
+    if links:
+        rep.fixes.append(f"{links} lien(s) écrit(s) en Markdown « [texte](adresse) » transformé(s) en vrai(s) lien(s).")
+    if images:
+        rep.fixes.append(f"{images} image(s) Markdown retirée(s) : l'illustration est choisie à la main.")
+    if emphasis:
+        rep.fixes.append(f"{emphasis} mise(s) en forme Markdown (*italique*, **gras**) convertie(s) en <em>/<strong>.")
+    for url in unresolved:
+        rep.warnings.append(f"Lien sans adresse complète (« {url[:80]} ») : seul le texte est gardé ; refaire le lien à la main si utile.")
+    for m in _MD_LEFTOVER.finditer(html):
+        rep.warnings.append(f"Lien Markdown non converti, à corriger à la main : « {html[m.start():m.start() + 120]} ».")
+    return html
+
+
 # --- 0. Balises autorisées seulement (le prompt n'en demande pas d'autres) --------------------------------
 _ALLOWED = {"h3", "h4", "p", "ul", "ol", "li", "blockquote", "a", "em", "strong", "sup", "hr", "br",
             "h1", "h2", "h5", "h6"}  # h1/h2/h5/h6 : remappés ensuite par fix_headings
@@ -436,6 +508,7 @@ def remove_all_headings(html: str, rep: Report) -> str:
 
 def apply_all(html: str, abbrevs: dict[str, str] | None = None) -> tuple[str, Report]:
     rep = Report()
+    html = fix_markdown(html, rep)  # en premier (voir sa description)
     html = fix_tags(html, rep)
     html = fix_headings(html, rep)
     html = fix_ordinals(html, rep)

@@ -1,4 +1,4 @@
-import type { Article, ArticleStatus } from "./api";
+import type { Article, ArticleStatus, ResultSummary } from "./api";
 
 export const STATUS_LABEL: Record<ArticleStatus, string> = {
   pending: "À traduire",
@@ -42,6 +42,36 @@ export function sourceLabel(a: Pick<Article, "kind" | "source">): string {
     return new URL(a.source).hostname.replace(/^www\./, "");
   } catch {
     return a.source;
+  }
+}
+
+/** États qui prouvent que le brouillon existe encore dans WordPress. */
+export const EXISTS_IN_WP = new Set(["draft", "pending", "future", "private", "publish"]);
+
+/** Brouillon mis à la corbeille ou supprimé dans WordPress. */
+export const isGone = (r: Pick<ResultSummary, "mode" | "wp_status">) =>
+  r.mode === "brouillon" && (r.wp_status === "trash" || r.wp_status === "missing");
+
+/** Libellés de l'état d'une traduction : court (après le titre, comme « — Brouillon ») et long (colonne Date). */
+export function resultState(r: Pick<ResultSummary, "mode" | "wp_status">): { short: string; long: string } {
+  if (r.mode === "apercu") return { short: "Essai", long: "Essai (pas dans WordPress)" };
+  switch (r.wp_status) {
+    case "trash":
+      return { short: "Dans la corbeille de WordPress", long: "Mis à la corbeille" };
+    case "missing":
+      return { short: "Supprimé de WordPress", long: "Supprimé de WordPress" };
+    case "publish":
+      return { short: "Publié", long: "Publié" };
+    case "pending":
+      return { short: "En attente de relecture", long: "En attente de relecture" };
+    case "future":
+      return { short: "Planifié", long: "Planifié" };
+    case "private":
+      return { short: "Privé", long: "Privé" };
+    case "draft":
+      return { short: "Brouillon", long: "Brouillon créé" };
+    default: // pas (encore) vérifié auprès du site : on ne prétend pas que le brouillon existe
+      return { short: "État non vérifié", long: "État non vérifié dans WordPress" };
   }
 }
 

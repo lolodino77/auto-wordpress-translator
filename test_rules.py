@@ -153,8 +153,9 @@ class MarkdownInput(unittest.TestCase):
     def test_real_sample_file_if_present(self):
         from pathlib import Path
         from extract import article_from_markdown
-        p = Path("input/articles_md/Suppress the Riots, Mr. President.md")
-        if not p.exists():
+        p = next((x for x in (Path("input/articles_md/Suppress the Riots, Mr. President.md"),
+                              Path("input/corbeille/Suppress the Riots, Mr. President.md")) if x.exists()), None)
+        if p is None:
             self.skipTest("fichier d'exemple absent")
         art = article_from_markdown(p)
         self.assertEqual(art.title, "Suppress the Riots, Mr. President")
@@ -736,10 +737,17 @@ class Templating(unittest.TestCase):
     def test_caption_placeholder_is_visible_when_missing(self):
         self.assertIn("À COMPLÉTER", self.t.caption_inner(""))
 
+    def test_caption_placeholder_has_exactly_the_template_shape(self):
+        html = self.t.assemble("<em>i</em>", "<p>Corps.</p>", "", False, self.tpl)
+        caption = html.split("Illustration de couverture : ")[1].split("</p>")[0]
+        self.assertEqual(caption, "Artiste À COMPLÉTER,&nbsp;<em>Titre de l'œuvre</em>, technique, date.")
+        self.assertNotIn("(", caption)  # pas de parenthèses ajoutées
+        self.assertNotIn("<strong>", caption)  # seul le titre de l'œuvre est mis en forme (italique)
+
     def test_caption_from_editor_text_with_italic_title(self):
         c = self.t.caption_inner("David Teniers le Jeune, *Énée fuyant Troie*, huile sur bois, 1655-1656")
         self.assertTrue(c.startswith("Illustration de couverture : David Teniers"))
-        self.assertIn("<em>Énée fuyant Troie</em>", c)
+        self.assertIn(",\u00a0<em>Énée fuyant Troie</em>, huile sur bois", c)  # « ,&nbsp;<em> » comme les modèles
         self.assertEqual(self.t.caption_inner("Illustration : X, *Y*").split(" : ")[0], "Illustration")
 
     def test_nbsp_become_entities_like_the_templates(self):
@@ -965,8 +973,9 @@ class NoInventedHeadings(unittest.TestCase):
         from pathlib import Path
         from extract import article_from_markdown
         from rules import source_headings
-        p = Path("input/articles_md/Suppress the Riots, Mr. President.md")
-        if not p.exists():
+        p = next((x for x in (Path("input/articles_md/Suppress the Riots, Mr. President.md"),
+                              Path("input/corbeille/Suppress the Riots, Mr. President.md")) if x.exists()), None)
+        if p is None:
             self.skipTest("fichier d'exemple absent")
         art = article_from_markdown(p)
         self.assertEqual(source_headings(art.text, art.title), [])
@@ -1074,6 +1083,179 @@ class ParseAnswer(unittest.TestCase):
     def test_untranslated_answer_rejected(self):
         with self.assertRaises(ValueError):
             parse_answer("TITRE: T\nTAGS: a\n---\n<p>The text is the one of the and that.</p>\n<!--FIN-->")
+
+
+class MarkdownLinks(unittest.TestCase):
+    """Liens et mises en forme Markdown recopiés par le LLM : ils doivent devenir de vrais liens, jamais rester en clair."""
+
+    def md(self, html):
+        rep = rules.Report()
+        return rules.fix_markdown(html, rep), rep
+
+    def test_simple_link_becomes_anchor_on_its_text(self):
+        out, rep = self.md("<p>Le pasteur [Gavin Ortlund](https://www.logos.com/search?filters=author-87027_Author) a dit.</p>")
+        self.assertEqual(out, '<p>Le pasteur <a href="https://www.logos.com/search?filters=author-87027_Author">Gavin Ortlund</a> a dit.</p>')
+        self.assertTrue(any("Markdown" in f for f in rep.fixes))
+
+    def test_repairs_link_already_mangled_by_url_rule(self):
+        broken = ('<p>une [approche méthodique](<a href="https://www.logos.com/product/202053/x" target="_blank" '
+                  'rel="noreferrer noopener">https://www.logos.com/product/202053/x</a>) des Écritures</p>')
+        out, _ = self.md(broken)
+        self.assertEqual(out, '<p>une <a href="https://www.logos.com/product/202053/x" target="_blank" rel="noreferrer noopener">'
+                              'approche méthodique</a> des Écritures</p>')
+
+    def test_tweet_signature_gets_a_space_and_a_link(self):
+        out, _ = self.md("<p>— Gavin Ortlund (@gavinortlund)[16 janvier 2023](https://twitter.com/g/status/1?ref_src=twsrc%5Etfw)</p>")
+        self.assertEqual(out, '<p>— Gavin Ortlund (@gavinortlund) <a href="https://twitter.com/g/status/1?ref_src=twsrc%5Etfw">'
+                              '16 janvier 2023</a></p>')
+
+    def test_url_with_parentheses_plain_and_in_angle_brackets(self):
+        out, _ = self.md("<p>[wiki](https://fr.wikipedia.org/wiki/Foo_(bar)) et [wiki2](<https://fr.wikipedia.org/wiki/Baz_(qux)>)</p>")
+        self.assertIn('<a href="https://fr.wikipedia.org/wiki/Foo_(bar)">wiki</a>', out)
+        self.assertIn('<a href="https://fr.wikipedia.org/wiki/Baz_(qux)">wiki2</a>', out)
+        self.assertNotIn("](", out)
+
+    def test_link_with_title_and_inline_markup(self):
+        out, _ = self.md('<p>[<em>Somme théologique</em>](https://x.org/st "Titre au survol").</p>')
+        self.assertEqual(out, '<p><a href="https://x.org/st"><em>Somme théologique</em></a>.</p>')
+
+    def test_link_inside_note_keeps_note_brackets(self):
+        out, _ = self.md("<p>texte[[Voir [ce livre](https://x.org/livre), p. 3.]] et[[[Traduction libre] citation.]].</p>")
+        self.assertEqual(out, '<p>texte[[Voir <a href="https://x.org/livre">ce livre</a>, p. 3.]] et[[[Traduction libre] citation.]].</p>')
+
+    def test_www_mailto_and_autolinks(self):
+        out, _ = self.md("<p>[site](www.exemple.org) [écrire](mailto:a@b.fr) et <https://exemple.org/page></p>")
+        self.assertIn('<a href="https://www.exemple.org">site</a>', out)
+        self.assertIn('<a href="mailto:a@b.fr">écrire</a>', out)
+        self.assertIn('<a href="https://exemple.org/page">https://exemple.org/page</a>', out)
+
+    def test_relative_link_and_anchor_keep_text_with_warning(self):
+        out, rep = self.md("<p>Voir [la suite](/partie-2) et [plus haut](#intro).</p>")
+        self.assertEqual(out, "<p>Voir la suite et plus haut.</p>")
+        self.assertEqual(len([w for w in rep.warnings if "adresse complète" in w]), 2)
+
+    def test_markdown_image_is_removed(self):
+        out, rep = self.md("<p>Avant ![une image](https://x.org/a.jpg) après</p>")
+        self.assertEqual(out, "<p>Avant  après</p>")
+        self.assertTrue(any("image" in f for f in rep.fixes))
+
+    def test_unconvertible_link_is_reported(self):
+        _, rep = self.md("<p>[cassé](https://x.org/a b)</p>")
+        self.assertTrue(any("non converti" in w for w in rep.warnings))
+
+    def test_existing_html_links_untouched(self):
+        html = '<p>Un <a href="https://x.org/a_(b)">vrai lien</a> et [crochets] (parenthèses) normaux.</p>'
+        out, rep = self.md(html)
+        self.assertEqual(out, html)
+        self.assertEqual(rep.fixes, [])
+
+    def test_markdown_emphasis(self):
+        out, _ = self.md("<h3>Le projet de Dieu est *réellement* pour vous</h3><p>**Important** et __aussi__ ; 5 * 3 * 2 ; note*</p>")
+        self.assertEqual(out, "<h3>Le projet de Dieu est <em>réellement</em> pour vous</h3>"
+                              "<p><strong>Important</strong> et <strong>aussi</strong> ; 5 * 3 * 2 ; note*</p>")
+
+    def test_emphasis_ignores_urls(self):
+        html = '<p><a href="https://x.org/a__b__c">https://x.org/a__b__c</a> et https://x.org/*x*</p>'
+        out, _ = self.md(html)
+        self.assertEqual(out, html)
+
+    def test_full_pipeline_leaves_no_markdown_and_no_nested_links(self):
+        out, _ = apply("<p>Le pasteur [Gavin Ortlund](https://www.logos.com/search?filters=author-87027_Author) cite "
+                       "https://exemple.org/page et [wiki](<https://fr.wikipedia.org/wiki/Foo_(bar)>).[[Voir "
+                       "[ce livre](https://x.org/livre).]]</p>")
+        self.assertNotIn("](", out)
+        self.assertNotIn("<https", out)
+        self.assertNotRegex(out, r"<a [^>]*>(?:(?!</a>).)*<a ")
+        self.assertIn('<a href="https://www.logos.com/search?filters=author-87027_Author">Gavin Ortlund</a>', out)
+        self.assertIn('<a href="https://exemple.org/page">https://exemple.org/page</a>', out)
+        self.assertIn('<a href="https://fr.wikipedia.org/wiki/Foo_(bar)">wiki</a>', out)
+        self.assertIn('<a href="https://x.org/livre">ce livre</a>', out)
+
+
+class RelativeLinks(unittest.TestCase):
+    def test_markdown_file_links_made_absolute(self):
+        import extract
+
+        text = "voir [a](/p/x), [b](https://y.org), [c](#n), [d](<rel/z>) et [e](www.w.org)"
+        self.assertEqual(extract.absolutize_links(text, "https://ex.org/blog/post"),
+                         "voir [a](https://ex.org/p/x), [b](https://y.org), [c](#n), [d](<https://ex.org/blog/rel/z>) et [e](www.w.org)")
+        self.assertEqual(extract.absolutize_links(text, ""), text)  # adresse d'origine inconnue : inchangé
+
+
+class DraftStatesOnSite(unittest.TestCase):
+    """Un brouillon mis à la corbeille ou supprimé dans WordPress ne doit plus compter comme « déjà traduit »."""
+
+    def test_post_states_batch_then_individual_for_missing(self):
+        from unittest.mock import patch
+        import wp_selfhosted as ws
+        calls = []
+
+        def fake_get(url, params=None, **kw):
+            calls.append((url, params))
+            if url.endswith("/posts"):
+                self.assertIn("trash", params["status"])  # la corbeille doit être demandée explicitement
+                return SelfHosted.resp(data=[{"id": 1, "status": "draft"}, {"id": 2, "status": "trash"}, {"id": 3, "status": "publish"}])
+            return SelfHosted.resp(404 if url.endswith("/posts/4") else 403, {"code": "x"})
+
+        with patch.object(ws.requests, "get", fake_get), patch.object(ws, "_auth", return_value=("agent", "xxxx")):
+            states = ws.post_states("parlafoi.fr", [1, 2, 3, 4, 5])
+        self.assertEqual(states, {1: "draft", 2: "trash", 3: "publish", 4: "missing", 5: "inaccessible"})
+        self.assertEqual(len(calls), 3)  # 1 requête groupée + 1 par absent
+
+    def test_post_states_raises_when_site_refuses(self):
+        from unittest.mock import patch
+        import wp_selfhosted as ws
+        with patch.object(ws.requests, "get", lambda *a, **k: SelfHosted.resp(500, {"code": "err"})), \
+                patch.object(ws, "_auth", return_value=("agent", "xxxx")):
+            with self.assertRaises(RuntimeError):
+                ws.post_states("parlafoi.fr", [1])
+
+    def reconcile(self, rows, states=None, error=None):
+        import tempfile
+        import types
+        from unittest.mock import patch
+        import agent
+        d = tempfile.mkdtemp()
+        db = agent.open_db("parlafoi.fr", d)
+        for r in rows:
+            agent.set_status(db, *r)
+
+        def post_states(site, ids):
+            if error:
+                raise RuntimeError(error)
+            return {i: states.get(i, "unknown") for i in ids}
+
+        cfg = {"wordpress": {"mode": "selfhosted", "site": "parlafoi.fr"}}
+        with patch.object(agent, "backend", return_value=types.SimpleNamespace(post_states=post_states)):
+            out = agent.reconcile(db, cfg)
+        return out, {k: (st, info) for k, st, info in db.execute("SELECT * FROM jobs")}
+
+    def test_trashed_and_deleted_drafts_become_to_translate_again(self):
+        url = "https://parlafoi.fr/wp-admin/post.php?post={}&action=edit"
+        out, db = self.reconcile(
+            [("a", "published", url.format(1)), ("b", "published", url.format(2)), ("c", "published", url.format(3)),
+             ("d", "published", url.format(4)), ("e", "error", "Gemini indisponible")],
+            {1: "trash", 2: "missing", 3: "draft", 4: "publish"})
+        self.assertEqual(out, {"a": "trash", "b": "missing", "c": "draft", "d": "publish"})
+        self.assertEqual(db["a"], ("removed", url.format(1)))  # adresse de l'ancien brouillon gardée
+        self.assertEqual(db["b"][0], "removed")
+        self.assertEqual(db["c"][0], "published")
+        self.assertEqual(db["d"][0], "published")  # publié par un éditeur : bien « fait »
+        self.assertEqual(db["e"][0], "error")
+
+    def test_restored_draft_counts_again_and_unknown_changes_nothing(self):
+        url = "https://parlafoi.fr/wp-admin/post.php?post={}&action=edit"
+        _, db = self.reconcile([("a", "removed", url.format(1)), ("b", "published", url.format(2)),
+                                ("c", "removed", url.format(3))], {1: "draft", 2: "inaccessible", 3: "unknown"})
+        self.assertEqual(db["a"][0], "published")  # sorti de la corbeille
+        self.assertEqual(db["b"][0], "published")  # illisible : on ne conclut rien
+        self.assertEqual(db["c"][0], "removed")
+
+    def test_site_unreachable_keeps_local_state(self):
+        url = "https://parlafoi.fr/wp-admin/post.php?post=1&action=edit"
+        out, db = self.reconcile([("a", "published", url)], error="réseau coupé")
+        self.assertEqual(out, {})
+        self.assertEqual(db["a"][0], "published")
 
 
 class FakeBrowser:

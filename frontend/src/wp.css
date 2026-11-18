@@ -213,7 +213,7 @@ label.check { display: inline-flex; gap: 8px; align-items: center; cursor: point
 .welcome-head h2 { color: #fff; font-size: 30px; font-weight: 300; margin: 0 0 8px; line-height: 1.2; }
 .welcome-head p { margin: 0; font-size: 16px; color: #dbe7f3; max-width: 640px; }
 .welcome-head .deco { position: absolute; right: 36px; top: 50%; transform: translateY(-50%); opacity: .14; width: 150px; height: 150px; }
-.welcome-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; padding: 26px 32px 30px; }
+.welcome-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; padding: 26px 32px 30px; }
 .welcome-col { display: flex; gap: 14px; align-items: flex-start; }
 .welcome-col .icon {
   flex: none; width: 42px; height: 42px; border-radius: 50%; background: var(--heading); color: #fff;
@@ -281,6 +281,8 @@ label.check { display: inline-flex; gap: 8px; align-items: center; cursor: point
 .list-table .subtitle { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .list-table .row-error { color: var(--red-dark); font-size: 12px; margin-top: 4px; display: flex; gap: 4px; }
 .list-table .row-error svg { width: 14px; height: 14px; flex: none; margin-top: 2px; }
+.list-table .row-note { color: #614a03; font-size: 12px; margin-top: 4px; display: flex; gap: 4px; }
+.list-table .row-note svg { width: 14px; height: 14px; flex: none; margin-top: 2px; color: #bd8600; }
 .row-actions { color: #a7aaad; font-size: 13px; padding: 4px 0 0; visibility: hidden; display: flex; flex-wrap: wrap; gap: 0; }
 .row-actions > span + span::before { content: "|"; margin: 0 5px; color: #a7aaad; }
 .row-actions button, .row-actions a { background: none; border: 0; padding: 0; font: inherit; color: var(--blue); cursor: pointer; text-decoration: none; }
@@ -467,6 +469,7 @@ details.tech > summary { cursor: pointer; color: var(--blue); font-size: 13px; p
   max-width: 760px; margin: 16px auto 0; padding: 10px 14px; background: #f3eefc; color: #4c2d8a; border-radius: 4px;
   font-size: 13px; display: flex; gap: 8px; align-items: center;
 }
+.editor-canvas .gone-banner { background: var(--yellow-bg); color: #614a03; }
 .editor-title { font: 600 40px/1.25 Georgia, "Times New Roman", serif; color: #1e1e1e; margin: 0 0 28px; }
 .editor-frame { width: 100%; border: 0; display: block; min-height: 300px; }
 .code-view { width: 100%; min-height: 70vh; font: 13px/1.6 Consolas, Monaco, monospace; border: 1px solid #1e1e1e; border-radius: 2px; padding: 16px; background: #fff; color: #1e1e1e; resize: vertical; }
@@ -552,3 +555,76 @@ details.tech > summary { cursor: pointer; color: var(--blue); font-size: 13px; p
   .editor-title { font-size: 28px; }
   .cbtn .lbl { display: none; }
 }
+
+/* ---------- page de connexion (dans l'esprit de wp-login) ---------- */
+.login-splash { min-height: 100vh; background: var(--bg); }
+.login-page {
+  min-height: 100vh; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 24px 16px;
+}
+.login-box { width: 100%; max-width: 340px; animation: login-in .35s ease-out; }
+@keyframes login-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.login-logo {
+  width: 84px; height: 84px; margin: 0 auto 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #3b86c6, var(--blue-darker)); color: #fff; box-shadow: 0 6px 18px rgba(34,113,177,.35);
+}
+.login-logo svg { width: 42px; height: 42px; }
+.login-title { text-align: center; font-size: 22px; font-weight: 400; margin: 0 0 20px; color: var(--heading); }
+.login-message { text-align: center; color: #50575e; font-size: 13px; line-height: 1.55; margin: 0 0 18px; }
+.login-error {
+  background: #fff; border: 1px solid var(--border); border-left: 4px solid var(--red); box-shadow: 0 1px 1px rgba(0,0,0,.04);
+  padding: 12px; margin: 0 0 18px; font-size: 13px; overflow-wrap: anywhere;
+}
+.login-form {
+  background: #fff; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,.04); padding: 26px 24px 24px;
+}
+.login-form label { display: block; font-size: 14px; margin: 0 0 3px; color: #3c434a; }
+.login-form input[type="text"], .login-form input[type="password"] {
+  width: 100%; font-size: 24px; line-height: 1.33; min-height: 40px; margin: 0 0 16px; padding: 3px 10px;
+}
+.login-pass { position: relative; }
+.login-pass input { padding-right: 44px !important; }
+.login-pass button {
+  position: absolute; right: 0; top: 0; height: 40px; width: 42px; border: 0; background: none; color: #50575e; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.login-pass button:hover { color: var(--blue); }
+.login-pass svg { width: 20px; height: 20px; }
+.login-submit { display: flex; justify-content: flex-end; margin-top: 4px; }
+.login-submit .button { min-height: 32px; padding: 0 16px; }
+.login-help { margin-top: 18px; font-size: 13px; color: #3c434a; }
+.login-help summary { cursor: pointer; color: var(--blue); text-align: center; }
+.login-help summary:hover { color: var(--blue-dark); }
+.login-help ol { margin: 12px 0 8px; padding-left: 20px; }
+.login-help p { color: var(--muted); margin: 8px 0 0; }
+.login-back { margin-top: 22px; font-size: 13px; text-decoration: none; display: inline-flex; gap: 4px; align-items: center; color: #50575e; }
+.login-back:hover { color: var(--blue); }
+
+/* ---------- guide de la page de connexion ---------- */
+.login-box:has(.guide-body) { max-width: 560px; }
+.guide { margin-top: 26px; }
+.guide-ask { text-align: center; color: #3c434a; font-size: 14px; margin: 0 0 10px; }
+.guide-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.guide-choice button {
+  display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 10px; background: #fff; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 4px; font: 500 14px var(--font); color: #3c434a;
+}
+.guide-choice button svg { width: 18px; height: 18px; color: var(--muted); }
+.guide-choice button:hover { border-color: var(--blue); color: var(--blue); }
+.guide-choice button.on { border-color: var(--blue); background: var(--blue-bg); color: var(--blue-darker); box-shadow: 0 0 0 1px var(--blue); }
+.guide-choice button.on svg { color: var(--blue); }
+.guide-body { margin-top: 18px; background: #fff; border: 1px solid var(--border); padding: 20px 22px; font-size: 14px; }
+.guide-body > .inline-notice { margin-bottom: 16px; }
+.guide-sub { font-size: 15px; margin: 18px 0 8px; }
+.guide-then { margin: 18px 0 6px; }
+.guide-message { white-space: pre-wrap; background: var(--alt); border: 1px solid var(--border-light); padding: 12px; font: 13px/1.55 var(--font); margin: 0 0 10px; }
+.guide-steps { list-style: none; margin: 12px 0 0; padding: 0; }
+.guide-step { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; padding: 14px 0; border-top: 1px solid #f0f0f1; }
+.guide-step:first-child { border-top: 0; }
+.guide-num { width: 28px; height: 28px; border-radius: 50%; background: var(--blue); color: #fff; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.guide-step h3 { margin: 3px 0 6px; font-size: 15px; }
+.guide-step p { margin: 0 0 10px; }
+.guide-note { color: var(--muted); font-size: 13px; }
+.guide-shot { margin: 8px 0 4px; }
+.guide-shot img { display: block; max-width: 100%; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+@media (max-width: 560px) { .guide-choice { grid-template-columns: 1fr; } }

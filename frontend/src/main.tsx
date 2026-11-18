@@ -6,12 +6,21 @@ import { AppProvider } from "./context";
 import { AdminLayout } from "./layout";
 import Dashboard from "./pages/Dashboard";
 import Articles from "./pages/Articles";
-import AddArticles from "./pages/AddArticles";
 import Running from "./pages/Running";
 import Results from "./pages/Results";
-import Editor from "./pages/Editor";
 import SettingsPage from "./pages/Settings";
 import Help from "./pages/Help";
+import Login from "./pages/Login";
+import { useApp } from "./context";
+import type { ReactNode } from "react";
+
+/** Portail : tant que le compte WordPress n'est pas connecté et vérifié, seule la page de connexion est accessible. */
+function Gate({ children }: { children: ReactNode }) {
+  const { account, accountReady } = useApp();
+  if (!accountReady) return <div className="login-splash" aria-busy="true" />;
+  if (!account?.connected) return <Login />;
+  return <>{children}</>;
+}
 
 function NotFound() {
   return (
@@ -28,12 +37,11 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <AppProvider>
+        <Gate>
         <Routes>
-          <Route path="/resultats/:id" element={<Editor />} />
           <Route element={<AdminLayout />}>
             <Route index element={<Dashboard />} />
             <Route path="articles" element={<Articles />} />
-            <Route path="ajouter" element={<AddArticles />} />
             <Route path="traduction" element={<Running />} />
             <Route path="resultats" element={<Results />} />
             <Route path="reglages" element={<SettingsPage />} />
@@ -41,6 +49,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
+        </Gate>
       </AppProvider>
     </BrowserRouter>
   </StrictMode>,

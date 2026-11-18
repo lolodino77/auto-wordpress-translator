@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import {
   CheckSquare,
   ExternalLink,
@@ -9,12 +9,13 @@ import {
   Home,
   Languages,
   Loader2,
+  LogOut,
   Menu,
-  Plus,
   Settings,
   Sparkles,
 } from "lucide-react";
-import { useApp } from "./context";
+import { api } from "./api";
+import { errorText, useApp } from "./context";
 import { Notices } from "./components";
 
 function siteUrl(site: string) {
@@ -22,7 +23,7 @@ function siteUrl(site: string) {
 }
 
 export function AdminBar({ onMenu }: { onMenu: () => void }) {
-  const { status, account } = useApp();
+  const { status, account, confirm, notify, refreshAccount } = useApp();
   const name = account?.name || account?.username;
   return (
     <div id="adminbar">
@@ -40,9 +41,6 @@ export function AdminBar({ onMenu }: { onMenu: () => void }) {
           <ExternalLink size={12} className="ab-hide-mobile" />
         </a>
       )}
-      <Link to="/ajouter" className="ab-hide-mobile">
-        <Plus size={18} /> Ajouter
-      </Link>
       {status?.running && (
         <Link to="/traduction" className="ab-running">
           <Loader2 size={16} className="spin" /> <span className="ab-hide-mobile">Traduction en cours…</span>
@@ -54,6 +52,32 @@ export function AdminBar({ onMenu }: { onMenu: () => void }) {
             <span className="ab-hide-mobile">Connecté en tant que {name}</span>
             <span className="ab-avatar">{name.slice(0, 1).toUpperCase()}</span>
           </Link>
+        )}
+        {name && (
+          <button
+            title="Se déconnecter"
+            onClick={async () => {
+              const ok = await confirm({
+                title: "Se déconnecter ?",
+                body: (
+                  <p>
+                    Le programme oubliera l'identifiant et le mot de passe d'application enregistrés sur cet ordinateur. Il faudra les saisir de
+                    nouveau pour se reconnecter. Rien n'est modifié dans WordPress.
+                  </p>
+                ),
+                confirmLabel: "Se déconnecter",
+              });
+              if (!ok) return;
+              try {
+                await api.logout();
+                refreshAccount();
+              } catch (e) {
+                notify("error", errorText(e));
+              }
+            }}
+          >
+            <LogOut size={16} /> <span className="ab-hide-mobile">Déconnexion</span>
+          </button>
         )}
       </div>
     </div>
@@ -78,7 +102,7 @@ export function AdminMenu() {
   const { pathname } = useLocation();
   const { status } = useApp();
   const pending = status ? status.counts.pending + status.counts.error : 0;
-  const inArticles = pathname.startsWith("/articles") || pathname.startsWith("/ajouter");
+  const inArticles = pathname.startsWith("/articles");
   return (
     <nav id="adminmenu" aria-label="Menu principal">
       <ul>
@@ -87,23 +111,10 @@ export function AdminMenu() {
         <MenuItem
           to="/articles"
           icon={FileText}
-          label="Articles à traduire"
+          label="Liste des articles à traduire"
           current={inArticles}
           extra={pending > 0 ? <span className="count-bubble" title={`${pending} à traduire`}>{pending}</span> : undefined}
-        >
-          <ul className="submenu">
-            <li>
-              <NavLink to="/articles" end className={({ isActive }) => (isActive ? "current" : "")}>
-                Tous les articles
-              </NavLink>
-            </li>
-            <li>
-              <NavLink to="/ajouter" className={({ isActive }) => (isActive ? "current" : "")}>
-                Ajouter
-              </NavLink>
-            </li>
-          </ul>
-        </MenuItem>
+        />
         <MenuItem
           to="/traduction"
           icon={Sparkles}
@@ -122,7 +133,7 @@ export function AdminMenu() {
 
 export function AdminLayout() {
   const { pathname } = useLocation();
-  const { offline, clearOldNotices } = useApp();
+  const { offline, clearOldNotices, status } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -146,6 +157,21 @@ export function AdminLayout() {
       )}
       <main id="content" onClick={() => menuOpen && setMenuOpen(false)}>
         <div className="wrap">
+          {status && status.restart_needed === undefined && (
+            // ancienne version du programme (sans mise à jour automatique) : une dernière relance à la main
+            <div className="notice notice-warning" role="alert">
+              <p>
+                <strong>Le programme a été mis à jour pendant qu'il tournait : relancez-le une dernière fois.</strong> Fermez la fenêtre
+                noire « Traducteur d'articles », puis double-cliquez de nouveau sur « Lancer le traducteur ». Ensuite, les mises à jour
+                s'appliqueront toutes seules.
+              </p>
+            </div>
+          )}
+          {status?.restart_needed && status.running && (
+            <div className="notice notice-info">
+              <p>Une nouvelle version du programme est prête : elle s'appliquera automatiquement à la fin de la traduction en cours.</p>
+            </div>
+          )}
           <Notices />
           <Outlet />
         </div>

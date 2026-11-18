@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   CheckSquare,
   Clock,
-  FilePlus2,
   FileText,
   HeartPulse,
   Languages,
@@ -17,14 +16,14 @@ import {
 import { api, type ResultSummary } from "../api";
 import { useApp } from "../context";
 import { Postbox } from "../components";
-import { ROLE_LABEL, engineName, formatDate, plural } from "../util";
+import { ROLE_LABEL, engineName, formatDate, isGone, plural } from "../util";
 
 export default function Dashboard() {
   const { status, run, account, startRun, version } = useApp();
   const [recent, setRecent] = useState<ResultSummary[] | null>(null);
 
   useEffect(() => {
-    api.results().then((r) => setRecent(r.slice(0, 6))).catch(() => setRecent([]));
+    api.results().then((r) => setRecent(r.filter((x) => x.mode === "brouillon" && !isGone(x)).slice(0, 6))).catch(() => setRecent([]));
   }, [version]);
 
   const pending = status ? status.counts.pending + status.counts.error : 0;
@@ -46,25 +45,11 @@ export default function Dashboard() {
         <div className="welcome-cols">
           <div className="welcome-col">
             <div className="icon">
-              <FilePlus2 />
-            </div>
-            <div>
-              <h3>
-                <span className="step-num">1.</span>Ajoutez des articles
-              </h3>
-              <p>Collez l'adresse d'un article anglais, ou déposez un fichier .md.</p>
-              <Link to="/ajouter" className="button">
-                Ajouter un article
-              </Link>
-            </div>
-          </div>
-          <div className="welcome-col">
-            <div className="icon">
               <Sparkles />
             </div>
             <div>
               <h3>
-                <span className="step-num">2.</span>Lancez la traduction
+                <span className="step-num">1.</span>Lancez la traduction
               </h3>
               <p>La traduction suit les consignes de la revue, puis le brouillon est créé dans WordPress.</p>
               {running ? (
@@ -76,6 +61,12 @@ export default function Dashboard() {
                   {pending ? `Traduire ${plural(pending, "article", "articles")}` : "Aucun article en attente"}
                 </button>
               )}
+              {!running && !pending && !!status?.counts.done && (
+                <p className="description" style={{ marginTop: 8 }}>
+                  Les articles de la liste ont déjà leur brouillon. Pour en refaire un :{" "}
+                  <Link to="/articles?etat=done">« Retraduire »</Link>.
+                </p>
+              )}
             </div>
           </div>
           <div className="welcome-col">
@@ -84,7 +75,7 @@ export default function Dashboard() {
             </div>
             <div>
               <h3>
-                <span className="step-num">3.</span>Relisez, puis publiez
+                <span className="step-num">2.</span>Relisez, puis publiez
               </h3>
               <p>Relisez la traduction et cochez les points à vérifier. La publication se fait vous-même, dans WordPress.</p>
               <Link to="/resultats" className="button">
@@ -148,8 +139,13 @@ export default function Dashboard() {
                   <li key={r.id}>
                     <time>{formatDate(r.date)}</time>
                     <span>
-                      <Link to={`/resultats/${r.id}`}>{r.title}</Link>
-                      {r.mode === "apercu" && <span className="muted"> (essai)</span>}
+                      {r.draft_url ? (
+                        <a href={r.draft_url} target="_blank" rel="noreferrer">
+                          {r.title}
+                        </a>
+                      ) : (
+                        r.title
+                      )}
                     </span>
                   </li>
                 ))}

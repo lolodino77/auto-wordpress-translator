@@ -23,6 +23,8 @@ interface AppState {
   status: Status | null;
   run: Run | null;
   account: Account | null;
+  /** Faux tant que l'état du compte n'a pas été lu (évite d'afficher la page de connexion une fraction de seconde). */
+  accountReady: boolean;
   offline: boolean;
   /** Augmente à chaque changement de données (ajout, fin de traduction…) : les pages relisent alors leur liste. */
   version: number;
@@ -57,11 +59,21 @@ export function errorText(e: unknown): ReactNode {
   return msg;
 }
 
+/** Recharger la page ne fait rien perdre : aucun champ en cours de saisie, aucune fenêtre ouverte. */
+function safeToReload(): boolean {
+  const el = document.activeElement;
+  if (el && ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) return false;
+  if (document.querySelector(".modal, .quick-edit")) return false;
+  // champs dont la saisie serait perdue : mot de passe en cours de saisie
+  return !Array.from(document.querySelectorAll<HTMLInputElement>("#content input[type=password]")).some((f) => f.value.trim());
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [status, setStatus] = useState<Status | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
+  const [accountReady, setAccountReady] = useState(false);
   const [offline, setOffline] = useState(false);
   const [version, setVersion] = useState(0);
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -70,6 +82,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const wasRunning = useRef(false);
   const runFetched = useRef(false);
   const timer = useRef<number>();
+  const failingSince = useRef<number | null>(null); // un redémarrage dure quelques secondes : pas d'alerte tout de suite
+  const uiLoaded = useRef<string | null>(null);
+  const uiNotified = useRef(false);
 
   const notify = useCallback((kind: NoticeKind, text: ReactNode) => {
     const id = nextId.current++;
@@ -87,7 +102,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const st = await api.status();
       setStatus(st);
       setOffline(false);
+      failingSince.current = null;
       running = st.running;
+      // nouvelle version de l'interface : rechargement automatique, sauf si l'on est en train de saisir quelque chose
+      if (st.ui_version) {
+        if (uiLoaded.current === null) uiLoaded.current = st.ui_version;
+        else if (st.ui_version !== uiLoaded.current) {
+          if (safeToReload()) window.location.reload();
+          else if (!uiNotified.current) {
+            uiNotified.current = true;
+            notify("info", (
+              <>
+                Une nouvelle version de l'interface est disponible.{" "}
+                <button className="button-link" onClick={() => window.location.reload()}>
+                  Recharger la page
+                </button>{" "}
+                (pensez à enregistrer votre saisie avant).
+              </>
+            ));
+          }
+        }
+      }
       if (st.running || wasRunning.current || !runFetched.current) {
         const r = await api.currentRun();
         runFetched.current = true;
@@ -109,9 +144,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       wasRunning.current = st.running;
     } catch (e) {
-      if (e instanceof ApiError && e.offline) setOffline(true);
+      if (e instanceof ApiError && e.offline) {
+        failingSince.current ??= Date.now();
+        if (Date.now() - failingSince.current > 8000) setOffline(true); // au-delà d'un simple redémarrage
+      }
     }
-    timer.current = window.setTimeout(poll, running ? 1500 : 5000);
+    // pendant une coupure (redémarrage après une mise à jour), on revérifie vite pour se reconnecter aussitôt
+    timer.current = window.setTimeout(poll, failingSince.current !== null ? 1000 : running ? 1500 : 5000);
   }, [notify]);
 
   useEffect(() => {
@@ -120,7 +159,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [poll]);
 
   const refreshAccount = useCallback(() => {
-    api.account().then(setAccount).catch(() => setAccount(null));
+    api.account().then(setAccount).catch(() => setAccount(null)).finally(() => setAccountReady(true));
   }, []);
   useEffect(refreshAccount, [refreshAccount]);
 
@@ -169,7 +208,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ status, run, account, offline, version, notices, notify, dismiss, clearOldNotices, refresh, refreshAccount, startRun, stopRun, confirm }}
+      value={{ status, run, account, accountReady, offline, version, notices, notify, dismiss, clearOldNotices, refresh, refreshAccount, startRun, stopRun, confirm }}
     >
       {children}
       {pendingConfirm && (

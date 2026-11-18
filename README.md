@@ -84,14 +84,19 @@ L'interface reprend l'apparence de l'administration WordPress :
 | Menu | Ce qu'on y fait |
 |---|---|
 | **Tableau de bord** | les trois étapes, un bouton pour tout traduire, l'état du compte et des réglages, l'activité récente |
-| **Articles à traduire** | la liste (CSV et fichiers `.md`) avec onglets Tous / À traduire / Brouillons créés / Erreurs, recherche, actions groupées ; au survol d'un titre : Traduire, Retraduire, Modification rapide (étiquettes, légende de l'illustration), Voir l'original, Retirer |
-| **Ajouter** | coller une ou plusieurs adresses, ou déposer des fichiers `.md` (glisser-déposer) |
+| **Liste des articles à traduire** | la liste (CSV et fichiers `.md`) avec onglets Tous / À traduire / Brouillons créés / Erreurs, recherche, actions groupées ; au survol d'un titre : Traduire, Retraduire, Modification rapide (étiquettes, légende de l'illustration), Voir l'original, Retirer |
 | **Traduction** | l'avancement en direct, article par article (lecture, traduction, création du brouillon), bouton « Arrêter après cet article », journal |
-| **Traductions faites** | chaque résultat s'ouvre dans une vue façon éditeur de blocs : texte mis en page, code HTML à copier, et à droite le panneau Article (statut, identifiant, catégorie, étiquettes, source) et l'onglet **À vérifier** (points signalés et gestes à faire dans WordPress, à cocher) |
+| **Traductions faites** | l'état réel de chaque brouillon dans WordPress (Brouillon, Publié… ; onglet **Corbeille** pour ceux mis à la corbeille ou supprimés, avec « Retirer définitivement de la liste », sans rien toucher dans WordPress). Chaque titre ouvre le **vrai brouillon dans WordPress** : la relecture et la mise en ligne se font là-bas, il n'y a pas de page de relecture dans le programme. Les points à vérifier figurent dans la fiche `output/review/<article>.md` |
 | **Réglages** | adresse et type du site, ordre des outils de traduction, compte WordPress (identifiant et mot de passe d'application, vérifiés auprès du site, avec l'affichage des droits réels) |
 | **Aide** | questions fréquentes |
 
-« Faire un essai » traduit sans rien envoyer à WordPress. L'interface et `python agent.py` partagent les mêmes fichiers
+**Mises à jour sans redémarrage** : quand le code du programme change (mise à jour, correction), il redémarre tout seul dans
+la même fenêtre en 1 à 2 secondes, mais jamais pendant une traduction (il attend la fin de l'article en cours). La page ouverte se
+reconnecte et se recharge d'elle-même si l'interface a changé (sauf pendant une saisie : un message propose alors de recharger).
+Si une mise à jour contient une erreur, la fenêtre l'affiche et le programme repart dès la correction suivante. Seule exception :
+une modification de `webapp/__main__.py` lui-même (le « gardien » qui tient la fenêtre) demande de relancer à la main.
+
+Un article n'est « déjà traduit » que si son brouillon existe encore : le programme vérifie l'état réel des brouillons sur le site (lecture seule, avant chaque ajout ou lancement et toutes les 30 secondes environ) ; un brouillon mis à la corbeille ou supprimé dans WordPress rend l'article de nouveau « à traduire », et un brouillon sorti de la corbeille le refait compter comme fait. L'interface et `python agent.py` partagent les mêmes fichiers
 (`input/articles.csv`, `input/articles_md/`, base d'état) : on peut passer de l'un à l'autre. Un article retiré de la liste qui était
 un fichier `.md` est déplacé dans `input/corbeille/`, jamais effacé.
 
@@ -143,7 +148,7 @@ Sans légende fournie, le brouillon contient un repère visible **« À COMPLÉT
 
 ```bash
 conda activate auto-wordpress-translator
-python agent.py                       # traite les URLs de input/articles.csv (celles déjà faites sont sautées)
+python agent.py                       # traite les URLs de input/articles.csv (sautées : celles dont le brouillon existe encore)
 python agent.py --only 3              # un seul élément (1 = premier), même s'il est déjà fait
 python agent.py --force               # retraite tout, même ce qui est déjà fait (crée de nouveaux brouillons)
 python agent.py --md                  # traite tous les .md de input/articles_md/ et crée les brouillons
@@ -178,6 +183,10 @@ fichier .md ─► extract.py ─┘       │                (Gemini/ChatGPT)  
    avec espaces insécables, références bibliques « Livre Chapitre,Verset » (noms complets, abréviations de la Bible de Jérusalem
    en note ou en liste, fichier `bible_abbreviations.toml`), notes de bas de page en `[[…]]`, introduction du traducteur en italique
    suivie d'un séparateur, séparateur final s'il y a des notes, balises HTML non prévues retirées, URL nues transformées en liens.
+   **Liens** : le texte source est en Markdown et le LLM en recopie parfois la syntaxe ; tout lien `[texte](adresse)` restant
+   (adresse entre chevrons ou avec parenthèses, titre de lien, lien dans une note, signature de tweet) devient un vrai lien attaché à son
+   texte, `*italique*` / `**gras**` deviennent `<em>` / `<strong>`, les images Markdown sont retirées. Un lien relatif est rendu absolu dès
+   l'extraction ; s'il ne peut pas l'être, seul le texte est gardé et la fiche de relecture le signale, comme tout lien impossible à convertir.
 5. **Mise en forme d'après les modèles** (`templating.py`) : les articles de `articles_templates/` (articles déjà publiés, HTML copié de
    l'éditeur de code) définissent la structure, lue et vérifiée à chaque exécution : **introduction du traducteur** en italique
    (« Cet article est la traduction de l'article [lien] de [auteur], dans lequel [auteur] … » ; le résumé est écrit par le LLM), **séparateur**,
@@ -194,7 +203,7 @@ fichier .md ─► extract.py ─┘       │                (Gemini/ChatGPT)  
 
 | Fichier ou dossier | Contenu |
 |---|---|
-| `output/review/*.md` | une fiche de relecture par article (`essai-*.md` pour un essai lancé depuis l'interface) |
+| `output/review/*.md` | une fiche de relecture par article |
 | `output/results/*.json` | résultat complet de chaque traduction (texte HTML, avertissements, points à vérifier), affiché par l'interface |
 | `output/rejected/` | traductions refusées par le garde-fou, pour inspection |
 | `output/NN-*.html`, `output/NN-*.source.md` | aperçu et texte source (`dry_run.py` seulement) |

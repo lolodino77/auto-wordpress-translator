@@ -86,6 +86,32 @@ def _term_id(site: str, taxonomy: str, name: str, create: bool) -> int | None:
     return None
 
 
+_ALL_STATUSES = "draft,pending,future,private,publish,trash"  # « any » de WordPress exclut la corbeille
+
+
+def post_states(site: str, ids: list[int]) -> dict[int, str]:
+    """État réel de brouillons déjà créés (lecture seule) : {n°: « draft », « publish », « trash »…, « missing » si
+    l'article a été supprimé définitivement, « inaccessible » s'il n'est plus lisible par ce compte}. Une requête par
+    paquet de 100 ; lève une exception si le site ne répond pas (l'appelant garde alors ce qu'il savait)."""
+    out: dict[int, str] = {}
+    for i in range(0, len(ids), 100):
+        chunk = ids[i:i + 100]
+        r = requests.get(_api(site, "posts"), params={"include": ",".join(map(str, chunk)), "status": _ALL_STATUSES,
+                                                      "context": "edit", "per_page": 100, "_fields": "id,status"},
+                         auth=_auth(), timeout=TIMEOUT)
+        if r.status_code != 200:
+            raise RuntimeError(f"Lecture de l'état des brouillons refusée : HTTP {r.status_code} {r.text[:200]}")
+        out.update({p["id"]: p["status"] for p in r.json()})
+    for pid in (p for p in ids if p not in out):  # absent de la liste : supprimé, ou plus lisible par ce compte ?
+        r = requests.get(_api(site, f"posts/{pid}"), params={"context": "edit", "_fields": "id,status"},
+                         auth=_auth(), timeout=TIMEOUT)
+        if r.status_code == 200:
+            out[pid] = r.json().get("status", "unknown")
+        else:
+            out[pid] = {404: "missing", 410: "missing", 401: "inaccessible", 403: "inaccessible"}.get(r.status_code, "unknown")
+    return out
+
+
 def create_draft(site: str, title: str, html: str, tags: list[str], categories: list[str] | None = None,
                  slug: str | None = None) -> str:
     """Crée un brouillon (status=draft, jamais autre chose). Retourne l'adresse de modification dans l'administration."""

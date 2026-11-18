@@ -38,10 +38,10 @@ def backend(cfg: dict):
     raise ValueError(f"mode inconnu dans config.toml : {mode!r} (attendu : 'wpcom' ou 'selfhosted')")
 
 
-def open_db(site: str) -> sqlite3.Connection:
+def open_db(site: str, directory: str | Path = ".") -> sqlite3.Connection:
     """Une base d'état PAR SITE : un article déjà publié sur un site n'est pas considéré comme fait pour un autre."""
     host = re.sub(r"[^a-z0-9]+", "-", site.lower().removeprefix("https://").removeprefix("http://")).strip("-")
-    db = sqlite3.connect(f"state-{host}.db")
+    db = sqlite3.connect(Path(directory) / f"state-{host}.db", timeout=15)
     db.execute("CREATE TABLE IF NOT EXISTS jobs (url TEXT PRIMARY KEY, status TEXT, info TEXT)")
     return db
 
@@ -49,6 +49,42 @@ def open_db(site: str) -> sqlite3.Connection:
 def set_status(db, url, status, info=""):
     db.execute("INSERT OR REPLACE INTO jobs VALUES (?,?,?)", (url, status, info))
     db.commit()
+
+
+_POST_ID = re.compile(r"[?&](?:post|p)=(\d+)")
+GONE = {"trash", "missing"}  # brouillon mis à la corbeille ou supprimé dans WordPress
+
+
+def reconcile(db, cfg: dict, keys=None) -> dict[str, str]:
+    """Met la base locale d'accord avec le site : un brouillon mis à la corbeille ou supprimé dans WordPress rend son
+    article de nouveau « à traduire » (état « removed ») ; un brouillon sorti de la corbeille redevient « fait ».
+    Lecture seule côté site. Retourne {clé: état WordPress}. Si le site ne répond pas, la base locale reste telle quelle."""
+    mod = backend(cfg)
+    if not hasattr(mod, "post_states"):  # WordPress.com : pas de vérification
+        return {}
+    rows = db.execute("SELECT url, status, info FROM jobs WHERE status IN ('published', 'removed')").fetchall()
+    ids = {k: (status, int(m.group(1))) for k, status, info in rows
+           if (keys is None or k in keys) and (m := _POST_ID.search(info or ""))}
+    if not ids:
+        return {}
+    try:
+        states = mod.post_states(cfg["wordpress"]["site"], sorted({pid for _, pid in ids.values()}))
+    except Exception as e:
+        log.warning("État des brouillons illisible sur le site (%s) : on se fie à la base locale.", e)
+        return {}
+    db_rows = {k: info for k, _, info in rows}
+    out = {}
+    for key, (status, pid) in ids.items():
+        wp_status = states.get(pid, "unknown")
+        out[key] = wp_status
+        if status == "published" and wp_status in GONE:
+            set_status(db, key, "removed", db_rows[key])  # on garde l'adresse de l'ancien brouillon
+            log.info("Brouillon n° %s %s dans WordPress : %s redevient à traduire.", pid,
+                     "mis à la corbeille" if wp_status == "trash" else "supprimé", key)
+        elif status == "removed" and wp_status not in GONE | {"unknown", "inaccessible"}:
+            set_status(db, key, "published", db_rows[key])
+            log.info("Brouillon n° %s de nouveau présent dans WordPress (%s) : %s est fait.", pid, wp_status, key)
+    return out
 
 
 def process(key: str, csv_tags: list[str], load, cfg: dict, browser: Browser, categories: list[str],
@@ -114,6 +150,8 @@ def main():
         return
 
     db = open_db(cfg["wordpress"]["site"])
+    if not args.force:
+        reconcile(db, cfg)  # un brouillon mis à la corbeille dans WordPress ne compte plus comme « fait »
     done = set() if args.force else {r[0] for r in db.execute("SELECT url FROM jobs WHERE status='published'")}
     jobs = md_jobs(args.md) if args.md is not None else csv_jobs(args.csv)
     todo = [(k, t, load) for i, (k, t, load) in enumerate(jobs, start=1)
@@ -137,7 +175,7 @@ def main():
                 set_status(db, key, "error", str(e))
                 log.error("ECHEC %s : %s", key, e)
 
-    names = {"published": "brouillon créé", "error": "erreur"}
+    names = {"published": "brouillon créé", "error": "erreur", "removed": "ancien brouillon supprimé : à traduire"}
     for key, status, info in db.execute("SELECT * FROM jobs"):
         print(f"[{names.get(status, status)}] {key} {info}")
 

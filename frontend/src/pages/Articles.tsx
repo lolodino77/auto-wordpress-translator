@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { XCircle } from "lucide-react";
+import { Trash2, XCircle } from "lucide-react";
 import { api, type Article } from "../api";
 import { errorText, useApp } from "../context";
 import { StatusBadge, TagEditor } from "../components";
@@ -123,10 +123,22 @@ export default function Articles() {
     if (!bulk) return notify("warning", "Choisissez d'abord une action dans la liste « Actions groupées ».");
     if (!list.length) return notify("warning", "Cochez d'abord un ou plusieurs articles.");
     if (bulk === "remove") return remove(list);
-    if (bulk === "preview") return startRun({ keys: list.map((a) => a.key), mode: "apercu" });
     const todo = list.filter((a) => a.status !== "done");
-    if (!todo.length)
-      return notify("warning", "Ces articles ont déjà un brouillon. Pour en créer un nouveau, utilisez « Retraduire » sous le titre.");
+    if (!todo.length) {
+      const ok = await confirm({
+        title: list.length > 1 ? `Retraduire ces ${list.length} articles ?` : "Retraduire cet article ?",
+        body: (
+          <p>
+            {list.length > 1 ? "Ils ont" : "Il a"} déjà un brouillon dans WordPress. Une nouvelle traduction créera{" "}
+            <strong>{list.length > 1 ? "de nouveaux brouillons" : "un nouveau brouillon"}</strong> ; les anciens ne sont ni modifiés ni
+            supprimés (vous pourrez les mettre à la corbeille vous-même dans WordPress).
+          </p>
+        ),
+        confirmLabel: "Retraduire",
+      });
+      if (ok) startRun({ keys: list.map((a) => a.key), mode: "brouillon", force: true });
+      return;
+    }
     if (todo.length < list.length)
       notify("info", `${plural(list.length - todo.length, "article ignoré", "articles ignorés")} : déjà un brouillon.`);
     startRun({ keys: todo.map((a) => a.key), mode: "brouillon" });
@@ -136,10 +148,7 @@ export default function Articles() {
 
   return (
     <>
-      <h1 className="page-title">Articles à traduire</h1>
-      <Link to="/ajouter" className="page-title-action">
-        Ajouter
-      </Link>
+      <h1 className="page-title">Liste des articles à traduire</h1>
       {pending > 0 && !running && (
         <div className="notice notice-info" style={{ marginTop: 12 }}>
           <p>
@@ -148,9 +157,6 @@ export default function Articles() {
           <div className="button-row">
             <button className="button button-primary" onClick={() => startRun({ mode: "brouillon" })}>
               Traduire et créer {pending > 1 ? "les brouillons" : "le brouillon"}
-            </button>
-            <button className="button" onClick={() => startRun({ mode: "apercu" })} title="Traduit sans rien envoyer à WordPress">
-              Faire un essai sans WordPress
             </button>
           </div>
         </div>
@@ -181,7 +187,6 @@ export default function Articles() {
         <select id="bulk" value={bulk} onChange={(e) => setBulk(e.target.value)} disabled={running}>
           <option value="">Actions groupées</option>
           <option value="translate">Traduire et créer les brouillons</option>
-          <option value="preview">Faire un essai (sans WordPress)</option>
           <option value="remove">Retirer de la liste</option>
         </select>
         <button className="button" onClick={applyBulk} disabled={running}>
@@ -219,7 +224,7 @@ export default function Articles() {
           ) : items.length === 0 ? (
             <tr className="empty">
               <td colSpan={5}>
-                Aucun article pour l'instant. <Link to="/ajouter">Ajouter un premier article</Link>
+                Aucun article dans la liste pour l'instant.
               </td>
             </tr>
           ) : shown.length === 0 ? (
@@ -255,11 +260,6 @@ export default function Articles() {
                       {!running && a.status === "done" && (
                         <span>
                           <button onClick={() => retranslate(a)}>Retraduire</button>
-                        </span>
-                      )}
-                      {(a.result_id || a.preview_id) && (
-                        <span>
-                          <Link to={`/resultats/${a.result_id || a.preview_id}`}>Relire la traduction</Link>
                         </span>
                       )}
                       {a.draft_url && (
@@ -327,14 +327,13 @@ export default function Articles() {
 
 function TitleCell({ a }: { a: Article }) {
   const title = a.title_fr || a.title;
-  const rid = a.result_id || a.preview_id;
   return (
     <Fragment>
       <strong>
-        {rid ? (
-          <Link className="row-title" to={`/resultats/${rid}`}>
+        {a.draft_url ? (
+          <a className="row-title" href={a.draft_url} target="_blank" rel="noreferrer" title="Ouvrir le brouillon dans WordPress">
             {title}
-          </Link>
+          </a>
         ) : (
           <span className="row-title plain">{title}</span>
         )}
@@ -342,6 +341,11 @@ function TitleCell({ a }: { a: Article }) {
       </strong>
       {a.title_fr && <div className="subtitle">Titre original : {a.title}</div>}
       {a.kind === "md" && <div className="subtitle">Fichier : {a.source}</div>}
+      {a.note && (
+        <div className="row-note">
+          <Trash2 /> {a.note}
+        </div>
+      )}
       {a.status === "error" && a.error && (
         <div className="row-error">
           <XCircle /> {a.error}

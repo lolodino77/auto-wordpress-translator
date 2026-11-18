@@ -13,6 +13,8 @@ export interface Article {
   illustration: string;
   status: ArticleStatus;
   error: string;
+  /** Explication affichée sous le titre (ex. ancien brouillon mis à la corbeille dans WordPress). */
+  note: string;
   draft_url: string;
   result_id: string | null;
   preview_id: string | null;
@@ -28,6 +30,12 @@ export interface Status {
   counts: Record<"pending" | "done" | "error" | "running" | "queued", number>;
   total: number;
   running: boolean;
+  /** Le code a changé depuis le lancement (absent : ancienne version du programme) : il faut le relancer. */
+  restart_needed?: boolean;
+  /** Version de l'interface construite : quand elle change, la page se recharge. */
+  ui_version?: string;
+  /** Dernière erreur en vérifiant l'état des brouillons dans WordPress ("" si tout va bien). */
+  drafts_check_error?: string;
 }
 
 export interface RunItem {
@@ -67,6 +75,8 @@ export interface ResultSummary {
   draft_url: string;
   engine: string;
   warnings: number;
+  /** État du brouillon dans WordPress : draft, publish, trash, missing… (null : essai, ou pas encore vérifié). */
+  wp_status: string | null;
 }
 
 export interface Result extends Omit<ResultSummary, "warnings"> {
@@ -99,6 +109,14 @@ export interface Account {
   can_publish?: boolean;
   can_edit_others?: boolean;
   can_delete_others?: boolean;
+}
+
+export interface AddUrlsResult {
+  added: string[];
+  duplicates: string[];
+  invalid: string[];
+  /** Adresses ajoutées qui ont déjà un brouillon (traduites autrefois) : elles ne sont donc pas « à traduire ». */
+  already_done: { url: string; draft_url: string }[];
 }
 
 export class ApiError extends Error {
@@ -144,7 +162,7 @@ export const api = {
   status: () => call<Status>("GET", "/status"),
   articles: () => call<Article[]>("GET", "/articles"),
   addUrls: (urls: string[], tags: string[], illustration: string) =>
-    call<{ added: string[]; duplicates: string[]; invalid: string[] }>("POST", "/articles/urls", { urls, tags, illustration }),
+    call<AddUrlsResult>("POST", "/articles/urls", { urls, tags, illustration }),
   addFiles: (files: File[]) => {
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f, f.name));
@@ -159,8 +177,10 @@ export const api = {
   stopRun: () => call<{ ok: boolean }>("POST", "/runs/stop"),
   results: () => call<ResultSummary[]>("GET", "/results"),
   result: (id: string) => call<Result>("GET", `/results/${encodeURIComponent(id)}`),
+  archiveResult: (id: string) => call<{ ok: boolean; message: string }>("POST", "/results/delete", { key: id }),
   settings: () => call<Settings>("GET", "/settings"),
   saveSettings: (s: Partial<Settings>) => call<Settings>("PUT", "/settings", s),
   account: () => call<Account>("GET", "/account"),
+  logout: () => call<{ ok: boolean }>("POST", "/account/logout"),
   saveAccount: (username: string, app_password: string) => call<Account>("POST", "/account", { username, app_password }),
 };

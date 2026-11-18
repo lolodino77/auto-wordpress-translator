@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle2, Clock, ExternalLink, Eye, Loader2, MinusCircle, Sparkles, Square, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, ExternalLink, Loader2, MinusCircle, Sparkles, Square, XCircle } from "lucide-react";
 import { api, type Article, type Run, type RunItem } from "../api";
 import { useApp } from "../context";
 import { Postbox } from "../components";
@@ -132,7 +132,6 @@ function RunRow({ item, mode, article, engines }: { item: RunItem; mode: Run["mo
     ...(mode === "brouillon" ? [{ key: "publish" as const, label: "Création du brouillon" }] : []),
   ];
   const current = steps.findIndex((s) => s.key === item.step);
-  const rid = mode === "brouillon" ? article?.result_id : article?.preview_id;
   const title = article ? article.title_fr || article.title : item.label;
   return (
     <li className="run-item">
@@ -168,11 +167,6 @@ function RunRow({ item, mode, article, engines }: { item: RunItem; mode: Run["mo
         )}
         {item.status === "done" && (
           <div className="ri-links">
-            {rid && (
-              <Link to={`/resultats/${rid}`}>
-                <Eye /> Relire la traduction
-              </Link>
-            )}
             {item.draft_url && (
               <a href={item.draft_url} target="_blank" rel="noreferrer">
                 <ExternalLink /> Ouvrir le brouillon dans WordPress
@@ -189,6 +183,7 @@ function RunRow({ item, mode, article, engines }: { item: RunItem; mode: Run["mo
 function StartPanel() {
   const { status, startRun } = useApp();
   const pending = status ? status.counts.pending + status.counts.error : 0;
+  const done = status?.counts.done ?? 0;
   return (
     <Postbox title="Lancer une traduction" icon={Sparkles}>
       {pending > 0 ? (
@@ -200,21 +195,31 @@ function StartPanel() {
             <button className="button button-primary button-hero" onClick={() => startRun({ mode: "brouillon" })}>
               Traduire et créer {pending > 1 ? "les brouillons" : "le brouillon"}
             </button>
-            <button className="button button-hero" onClick={() => startRun({ mode: "apercu" })}>
-              Faire un essai sans WordPress
-            </button>
           </div>
           <p className="description" style={{ marginTop: 10 }}>
-            L'essai traduit et met en page sans rien envoyer au site : pratique pour tester. Pour choisir certains articles seulement, cochez-les
-            dans <Link to="/articles">la liste</Link> puis utilisez « Actions groupées ».
+            Pour choisir certains articles seulement, cochez-les dans <Link to="/articles">la liste</Link> puis utilisez « Actions groupées ».
           </p>
         </>
       ) : (
         <>
-          <p>Aucun article en attente de traduction.</p>
-          <Link to="/ajouter" className="button button-primary">
-            Ajouter des articles
-          </Link>
+          <p>
+            <strong>Aucun article en attente de traduction.</strong>
+          </p>
+          {done > 0 && (
+            <p>
+              {done > 1 ? `Les ${done} articles de la liste ont déjà leur brouillon` : "L'article de la liste a déjà son brouillon"} dans
+              WordPress : ils ont été traduits lors d'un passage précédent. Pour en refaire un, ouvrez{" "}
+              <Link to="/articles?etat=done">les articles déjà traduits</Link>, survolez le titre et cliquez sur « Retraduire » (un nouveau
+              brouillon est créé, l'ancien reste dans WordPress).
+            </p>
+          )}
+          <div className="button-row">
+            {done > 0 && (
+              <Link to="/articles?etat=done" className="button button-primary">
+                Voir les articles déjà traduits
+              </Link>
+            )}
+          </div>
         </>
       )}
     </Postbox>

@@ -10,8 +10,6 @@ const ALL_ENGINES = ["gemini", "gpt"];
 export default function SettingsPage() {
   const { notify, refresh, refreshAccount, status } = useApp();
   const [loaded, setLoaded] = useState<Settings | null>(null);
-  const [site, setSite] = useState("");
-  const [mode, setMode] = useState<Settings["mode"]>("selfhosted");
   const [engines, setEngines] = useState<{ id: string; on: boolean }[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -20,8 +18,6 @@ export default function SettingsPage() {
       .settings()
       .then((s) => {
         setLoaded(s);
-        setSite(s.site);
-        setMode(s.mode);
         setEngines([...s.engines.map((id) => ({ id, on: true })), ...ALL_ENGINES.filter((e) => !s.engines.includes(e)).map((id) => ({ id, on: false }))]);
       })
       .catch((e) => notify("error", errorText(e)));
@@ -38,7 +34,7 @@ export default function SettingsPage() {
     e.preventDefault();
     setBusy(true);
     try {
-      await api.saveSettings({ site, mode, engines: engines.filter((x) => x.on).map((x) => x.id) });
+      await api.saveSettings({ engines: engines.filter((x) => x.on).map((x) => x.id) });
       notify("success", "Réglages enregistrés.");
       refresh();
       refreshAccount();
@@ -57,32 +53,6 @@ export default function SettingsPage() {
       ) : (
         <>
           <form onSubmit={save}>
-            <h2 className="section-title">Site WordPress</h2>
-            <table className="form-table" role="presentation">
-              <tbody>
-                <tr>
-                  <th scope="row">
-                    <label htmlFor="site">Adresse du site</label>
-                  </th>
-                  <td>
-                    <input id="site" type="text" className="regular-text" value={site} onChange={(e) => setSite(e.target.value)} />
-                    <p className="description">Le site où les brouillons sont créés, par exemple parlafoi.fr.</p>
-                  </td>
-                </tr>
-                <tr>
-                  <th scope="row">
-                    <label htmlFor="mode">Type de site</label>
-                  </th>
-                  <td>
-                    <select id="mode" value={mode} onChange={(e) => setMode(e.target.value as Settings["mode"])}>
-                      <option value="selfhosted">WordPress installé chez un hébergeur (comme parlafoi.fr)</option>
-                      <option value="wpcom">Site WordPress.com (adresse en …wordpress.com)</option>
-                    </select>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
             <h2 className="section-title">Traduction</h2>
             <table className="form-table" role="presentation">
               <tbody>
@@ -120,8 +90,11 @@ export default function SettingsPage() {
                   <tr>
                     <th scope="row">Longueur maximale</th>
                     <td>
-                      {loaded.max_words.toLocaleString("fr-FR")} mots par article
-                      <p className="description">Au-delà, l'article est à découper à la main avant traduction.</p>
+                      <InlineNotice kind="warn">
+                        <strong>{loaded.max_words.toLocaleString("fr-FR")} mots par article</strong> (environ{" "}
+                        {Math.round(loaded.max_words / 500)} pages). Au-delà, l'outil de traduction risque de couper ou de raccourcir le texte :
+                        l'article est alors refusé et il faut le <strong>découper à la main</strong> avant de le traduire.
+                      </InlineNotice>
                     </td>
                   </tr>
                 )}

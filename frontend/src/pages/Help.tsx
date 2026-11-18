@@ -8,14 +8,14 @@ const FAQ: { q: string; a: ReactNode }[] = [
     a: (
       <ol>
         <li>
-          Menu <Link to="/ajouter">Articles à traduire › Ajouter</Link> : collez l'adresse de l'article en anglais.
+          Ouvrez <Link to="/articles">Liste des articles à traduire</Link> : les articles en attente de traduction y sont listés.
         </li>
         <li>
           Cliquez sur <strong>Traduire et créer le brouillon</strong>. Vous suivez l'avancement dans le menu <Link to="/traduction">Traduction</Link>.
         </li>
         <li>
-          À la fin, ouvrez la traduction dans <Link to="/resultats">Traductions faites</Link>, cochez les points à vérifier, puis cliquez sur
-          « Ouvrir dans WordPress » pour finir la mise en ligne vous-même.
+          À la fin, retrouvez votre brouillon dans <Link to="/resultats">Traductions faites</Link> : cliquez sur son titre pour l'ouvrir
+          dans WordPress, relisez-le et finissez la mise en ligne vous-même.
         </li>
       </ol>
     ),
@@ -40,21 +40,12 @@ const FAQ: { q: string; a: ReactNode }[] = [
     ),
   },
   {
-    q: "Quelle différence entre « Traduire » et « Faire un essai » ?",
-    a: (
-      <p>
-        L'essai traduit et met en page l'article sans rien envoyer à WordPress : pratique pour tester. « Traduire et créer le brouillon » fait la
-        même chose puis crée le brouillon sur le site.
-      </p>
-    ),
-  },
-  {
     q: "Que dois-je vérifier avant de publier ?",
     a: (
       <p>
-        Ouvrez la traduction : l'onglet <strong>À vérifier</strong>, à droite, liste les points signalés pendant la traduction (ouvrages cités,
-        références…) et les gestes à faire dans WordPress (illustration et sa légende, partage Monarch, catégorie…). Cochez-les au fur et à mesure :
-        les cases restent cochées sur cet ordinateur.
+        Ouvrez le brouillon dans WordPress et relisez-le en entier. Pensez surtout à : compléter la légende de l'illustration (repère « À COMPLÉTER »),
+        cocher « Enable Monarch Settings Override » en bas de l'éditeur, vérifier la catégorie et les étiquettes, et vérifier que les ouvrages cités
+        n'ont pas déjà été traduits en français.
       </p>
     ),
   },
@@ -110,7 +101,8 @@ const FAQ: { q: string; a: ReactNode }[] = [
     a: (
       <p>
         Pour l'arrêter, fermez la fenêtre noire ouverte au lancement. Pour le relancer, double-cliquez sur « Lancer le traducteur » : cette page
-        s'ouvre toute seule. Attendez la fin d'une traduction en cours avant de fermer.
+        s'ouvre toute seule. Attendez la fin d'une traduction en cours avant de fermer. Après une mise à jour, inutile de relancer : le
+        programme redémarre tout seul (jamais pendant une traduction) et cette page se met à jour d'elle-même.
       </p>
     ),
   },

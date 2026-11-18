@@ -14,8 +14,8 @@ from specs import load_specs
 # Ce que le code ne peut pas faire à la place d'un humain : à cocher à chaque article (voir la spec).
 MANUAL_CHECKLIST = [
     "Cocher « Enable Monarch Settings Override » en bas de la page de l'éditeur WP (partage des articles).",
-    "Choisir une illustration libre de droits et compléter sa légende : le brouillon contient le repère « À COMPLÉTER » "
-    "(« Illustration de couverture : », petite taille, en fin d'article, comme dans les modèles publiés).",
+    "Choisir une illustration libre de droits et compléter sa légende en fin d'article : remplacer « Artiste À COMPLÉTER », "
+    "« Titre de l'œuvre » (déjà en italique), « technique » et « date » (même forme que les modèles publiés).",
     "Relire l'introduction du traducteur (résumé écrit par le LLM) et y ajouter, si besoin, le contexte éditorial.",
     "Vérifier la catégorie et les étiquettes proposées.",
     "Vérifier que les ouvrages cités n'ont pas déjà été traduits en français (et le signaler dans les références).",

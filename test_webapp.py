@@ -44,8 +44,26 @@ class WebappTest(unittest.TestCase):
             self.saved.append((user, pwd))
             return {"connected": True, "username": user, "roles": ["contributor"], "can_publish": False}
 
+        self.sync_calls = 0
+        self.after_sync: dict = {}  # ce que « le site » révèle à la vérification (ex. brouillon mis à la corbeille)
+
+        def reconcile(root, cfg):
+            self.sync_calls += 1
+            self.state.update(self.after_sync)
+
+        self.wp_states: dict = {}  # état des brouillons « sur le site » (n° -> draft, trash…)
+        self.wp_error = ""  # simule un site injoignable
+        self.draft_checks: list = []
+
+        def draft_states(root, cfg, ids):
+            self.draft_checks.append(list(ids))
+            if self.wp_error:
+                raise RuntimeError(self.wp_error)
+            return {i: self.wp_states.get(i, "unknown") for i in ids}
+
         app = create_app(self.root, runs=self.runs, statuses=lambda root, site: self.state,
-                         account=lambda root, cfg: {"configured": False}, save_credentials=save_credentials)
+                         account=lambda root, cfg: {"configured": False}, save_credentials=save_credentials,
+                         reconcile=reconcile, draft_states=draft_states)
         self.c = TestClient(app, base_url="http://127.0.0.1:8710")
 
     def tearDown(self):
@@ -90,6 +108,36 @@ class WebappTest(unittest.TestCase):
         self.assertEqual(items[0]["title"], "First post")
         self.assertEqual(items[0]["tags"], ["Bible", "Foi"])
         self.assertEqual(items[0]["status"], "pending")
+
+    def test_add_url_already_translated_is_reported(self):
+        self.state = {"https://example.com/old": ("published", "https://parlafoi.fr/?p=7")}
+        r = self.c.post("/api/articles/urls", headers=H,
+                        json={"urls": ["https://example.com/old", "https://example.com/new"]}).json()
+        self.assertEqual(r["added"], ["https://example.com/old", "https://example.com/new"])
+        self.assertEqual(r["already_done"], [{"url": "https://example.com/old", "draft_url": "https://parlafoi.fr/?p=7"}])
+
+    def test_trashed_draft_is_checked_on_site_before_add(self):
+        old = "https://parlafoi.fr/wp-admin/post.php?post=7&action=edit"
+        self.state = {"https://example.com/old": ("published", old)}
+        self.after_sync = {"https://example.com/old": ("removed", old)}  # mis à la corbeille dans WordPress
+        r = self.c.post("/api/articles/urls", headers=H, json={"urls": ["https://example.com/old"]}).json()
+        self.assertGreaterEqual(self.sync_calls, 1)
+        self.assertEqual(r["already_done"], [])  # plus de faux « déjà traduit »
+        item = self.c.get("/api/articles").json()[0]
+        self.assertEqual(item["status"], "pending")
+        self.assertIn("corbeille", item["note"])
+        self.assertEqual(item["draft_url"], "")
+
+    def test_trashed_draft_can_be_translated_again(self):
+        (self.root / "wp_credentials.json").write_text("{}", encoding="utf-8")
+        old = "https://parlafoi.fr/wp-admin/post.php?post=7&action=edit"
+        self.c.post("/api/articles/urls", headers=H, json={"urls": ["https://example.com/old"]})
+        self.state = {"https://example.com/old": ("published", old)}
+        self.after_sync = {"https://example.com/old": ("removed", old)}
+        r = self.c.post("/api/runs", headers=H, json={"mode": "brouillon"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.wait_run()
+        self.assertEqual(self.executed, ["https://example.com/old"])
 
     def test_status_from_state_db(self):
         self.c.post("/api/articles/urls", headers=H, json={"urls": ["https://example.com/a", "https://example.com/b"]})
@@ -210,6 +258,65 @@ class WebappTest(unittest.TestCase):
         self.assertEqual(self.c.get("/api/results/Config.TOML").status_code, 400)
         self.assertEqual(self.c.get("/api/results/inexistant").status_code, 400)
 
+    def write_result(self, rid, mode, post=None):
+        d = self.root / "output" / "results"
+        d.mkdir(parents=True, exist_ok=True)
+        url = f"https://parlafoi.fr/wp-admin/post.php?post={post}&action=edit" if post else ""
+        (d / f"{rid}.json").write_text(json.dumps({"id": rid, "key": f"https://example.com/{rid}", "mode": mode,
+                                                   "date": "2026-11-18T10:00:00", "title": rid, "html": "<p>x</p>",
+                                                   "draft_url": url, "warnings": []}), encoding="utf-8")
+
+    def test_results_follow_real_draft_state_in_wordpress(self):
+        self.write_result("brouillon-a", "brouillon", 7)
+        self.write_result("brouillon-b", "brouillon", 8)
+        self.write_result("brouillon-c", "brouillon", 9)
+        self.write_result("apercu-d", "apercu")
+        self.wp_states = {7: "trash", 8: "draft", 9: "publish"}
+        states = {r["id"]: r["wp_status"] for r in self.c.get("/api/results").json()}
+        self.assertEqual(states, {"brouillon-a": "trash", "brouillon-b": "draft", "brouillon-c": "publish", "apercu-d": None})
+        self.assertEqual(self.c.get("/api/results/brouillon-a").json()["wp_status"], "trash")
+
+    def test_unverified_state_is_reported_not_assumed(self):
+        self.write_result("brouillon-a", "brouillon", 7)
+        self.wp_error = "site injoignable"
+        r = self.c.get("/api/results").json()
+        self.assertIsNone(r[0]["wp_status"])  # inconnu : l'interface affiche « État non vérifié », pas « Brouillon »
+        self.assertIn("site injoignable", self.c.get("/api/status").json()["drafts_check_error"])
+        self.wp_error = ""
+        self.wp_states = {7: "trash"}
+        self.assertEqual(self.c.get("/api/results").json()[0]["wp_status"], "trash")  # revérifié aussitôt
+        self.assertEqual(self.c.get("/api/status").json()["drafts_check_error"], "")
+
+    def test_new_draft_is_checked_without_waiting(self):
+        self.write_result("brouillon-a", "brouillon", 7)
+        self.wp_states = {7: "draft", 8: "trash"}
+        self.c.get("/api/results")
+        self.write_result("brouillon-b", "brouillon", 8)  # traduction terminée entre-temps
+        states = {r["id"]: r["wp_status"] for r in self.c.get("/api/results").json()}
+        self.assertEqual(states, {"brouillon-a": "draft", "brouillon-b": "trash"})
+        self.assertIn([7, 8], self.draft_checks)
+
+    def test_restart_needed_when_code_changes_while_running(self):
+        import os
+        self.assertFalse(self.c.get("/api/status").json()["restart_needed"])
+        f = self.root / "pipeline.py"
+        f.write_text("# nouvelle version", encoding="utf-8")
+        later = time.time() + 60
+        os.utime(f, (later, later))
+        self.assertTrue(self.c.get("/api/status").json()["restart_needed"])
+
+    def test_status_gives_interface_version(self):
+        self.assertIn("ui_version", self.c.get("/api/status").json())
+
+    def test_archive_result_moves_file_and_hides_it(self):
+        self.write_result("brouillon-a", "brouillon", 7)
+        r = self.c.post("/api/results/delete", headers=H, json={"key": "brouillon-a"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue((self.root / "output" / "results" / "retires" / "brouillon-a.json").exists())
+        self.assertEqual(self.c.get("/api/results").json(), [])
+        self.assertEqual(self.c.post("/api/results/delete", headers=H, json={"key": "../config"}).status_code, 400)
+        self.assertEqual(self.c.post("/api/results/delete", json={"key": "brouillon-a"}).status_code, 403)  # sans en-tête
+
     # --- réglages et compte -------------------------------------------------------------------------
     def test_settings_keep_rest_of_config(self):
         before = (self.root / "config.toml").read_text(encoding="utf-8")
@@ -223,6 +330,15 @@ class WebappTest(unittest.TestCase):
         self.assertEqual(self.c.put("/api/settings", headers=H, json={"engines": ["claude"]}).status_code, 400)
         self.assertEqual(self.c.put("/api/settings", headers=H, json={"site": "pas un site"}).status_code, 400)
 
+    def test_logout_forgets_credentials(self):
+        f = self.root / "wp_credentials.json"
+        f.write_text("{}", encoding="utf-8")
+        self.assertEqual(self.c.post("/api/account/logout").status_code, 403)  # sans en-tête
+        self.assertTrue(f.exists())
+        self.assertEqual(self.c.post("/api/account/logout", headers=H).status_code, 200)
+        self.assertFalse(f.exists())
+        self.assertEqual(self.c.post("/api/account/logout", headers=H).status_code, 200)  # déjà déconnecté : sans erreur
+
     def test_account_credentials(self):
         r = self.c.post("/api/account", headers=H, json={"username": " autotraduction ", "app_password": "abcd efgh"})
         self.assertEqual(r.status_code, 200, r.text)
@@ -234,6 +350,31 @@ class WebappTest(unittest.TestCase):
         r = self.c.get("/articles")
         self.assertIn(r.status_code, (200, 503))
         self.assertIn("text/html", r.headers["content-type"])
+
+
+class AutoRestart(unittest.TestCase):
+    """Mise à jour sans redémarrage manuel : le serveur se relance quand son code change, jamais pendant une traduction."""
+
+    def test_restart_rules(self):
+        from webapp.__main__ import should_restart
+        self.assertFalse(should_restart(100.0, 100.0, 100.0, False))  # rien n'a changé
+        self.assertFalse(should_restart(200.0, 100.0, 150.0, False))  # fichiers encore en cours d'écriture : on attend
+        self.assertTrue(should_restart(200.0, 100.0, 200.0, False))  # changé puis stable : on redémarre
+        self.assertFalse(should_restart(200.0, 100.0, 200.0, True))  # traduction en cours : jamais
+
+    def test_code_stamp_follows_python_files(self):
+        import os
+        from webapp.server import code_stamp
+        root = Path(tempfile.mkdtemp())
+        self.assertEqual(code_stamp(root), 0.0)
+        (root / "webapp").mkdir()
+        f = root / "webapp" / "x.py"
+        f.write_text("x = 1", encoding="utf-8")
+        os.utime(f, (1000, 1000))
+        self.assertEqual(code_stamp(root), 1000)
+        (root / "notes.txt").write_text("pas du code", encoding="utf-8")
+        self.assertEqual(code_stamp(root), 1000)
+        shutil.rmtree(root, ignore_errors=True)
 
 
 if __name__ == "__main__":

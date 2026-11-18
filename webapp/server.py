@@ -7,6 +7,8 @@ Protections (le serveur pilote un compte WordPress) :
 """
 import json
 import re
+import threading
+import time
 import tomllib
 from pathlib import Path
 from typing import Callable
@@ -20,8 +22,33 @@ from webapp.runner import Item, RunManager, real_execute
 from webapp.store import Store, StoreError
 
 ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+POST_ID = re.compile(r"[?&](?:post|p)=(\d+)")  # n° de l'article dans l'adresse du brouillon
+GONE = {"trash", "missing"}  # brouillon mis à la corbeille ou supprimé dans WordPress
 ENGINES = {"gemini", "gpt"}
 MODES = {"selfhosted", "wpcom"}
+
+
+STATIC = Path(__file__).parent / "static"
+
+
+def code_stamp(root: Path) -> float:
+    """Date de dernière modification du code Python du programme. Quand elle change (mise à jour), le programme
+    redémarre tout seul (voir __main__.py) : sinon l'ancien code continuerait de tourner."""
+    stamp = 0.0
+    for f in [*Path(root).glob("*.py"), *(Path(root) / "webapp").glob("*.py")]:
+        try:
+            stamp = max(stamp, f.stat().st_mtime)
+        except OSError:  # fichier remplacé pendant la lecture (éditeur, mise à jour en cours)
+            pass
+    return stamp
+
+
+def ui_version() -> str:
+    """Version de l'interface construite (date de webapp/static/index.html) : la page se recharge quand elle change."""
+    try:
+        return str((STATIC / "index.html").stat().st_mtime_ns)
+    except OSError:
+        return ""
 
 
 # --- modèles des requêtes ---------------------------------------------------------------------------------
@@ -104,6 +131,25 @@ def default_statuses(root: Path, site: str) -> dict[str, tuple[str, str]]:
         return {k: (s, i) for k, s, i in db.execute("SELECT url, status, info FROM jobs")}
 
 
+def default_reconcile(root: Path, cfg: dict) -> None:
+    """Met la base locale d'accord avec le site (brouillons mis à la corbeille ou supprimés dans WordPress)."""
+    import agent
+
+    db = agent.open_db(cfg["wordpress"]["site"], root)
+    try:
+        agent.reconcile(db, cfg)
+    finally:
+        db.close()
+
+
+def default_draft_states(root: Path, cfg: dict, ids: list[int]) -> dict[int, str]:
+    """État réel dans WordPress de brouillons déjà créés (lecture seule) ; {} si le type de site ne le permet pas."""
+    import agent
+
+    mod = agent.backend(cfg)
+    return mod.post_states(cfg["wordpress"]["site"], ids) if hasattr(mod, "post_states") else {}
+
+
 def default_account(root: Path, cfg: dict) -> dict:
     """État du compte WordPress utilisé par l'application (lecture seule)."""
     wp = cfg["wordpress"]
@@ -147,8 +193,12 @@ def default_save_credentials(root: Path, cfg: dict, username: str, app_password:
 def create_app(root: Path, runs: RunManager | None = None,
                statuses: Callable[[Path, str], dict] = default_statuses,
                account: Callable[[Path, dict], dict] = default_account,
-               save_credentials: Callable[..., dict] = default_save_credentials) -> FastAPI:
+               save_credentials: Callable[..., dict] = default_save_credentials,
+               reconcile: Callable[[Path, dict], None] = default_reconcile,
+               draft_states: Callable[[Path, dict, list[int]], dict[int, str]] = default_draft_states) -> FastAPI:
     root = Path(root).resolve()
+
+    started_stamp = code_stamp(root)
     store = Store(root)
     runs = runs or RunManager(real_execute)
     app = FastAPI(title="Traducteur WordPress", docs_url=None, redoc_url=None, openapi_url=None)
@@ -170,7 +220,54 @@ def create_app(root: Path, runs: RunManager | None = None,
     def cfg() -> dict:
         return read_config(root)
 
+    # --- vérification sur le site de l'état réel des brouillons déjà créés --------------------------------------
+    sync_lock = threading.Lock()
+    last_sync = [0.0]
+    draft_cache: dict[int, str] = {}  # n° de brouillon -> état dans WordPress (draft, publish, trash, missing…)
+    sync_error = [""]  # dernière erreur de vérification (site injoignable…), montrée dans l'interface
+
+    def result_post_ids() -> set[int]:
+        return {int(m.group(1)) for r in store.results().values()
+                if r.get("mode") == "brouillon" and (m := POST_ID.search(r.get("draft_url") or ""))}
+
+    def sync(wait: bool, max_age: float = 0) -> None:
+        """wait=True : avant une décision (ajout, lancement, affichage des traductions faites). wait=False : en
+        arrière-plan, au plus toutes les 30 s, pour suivre ce qui est fait dans WordPress (brouillon mis à la corbeille…)."""
+        def work() -> None:
+            c = cfg()
+            errors = []
+            try:
+                reconcile(root, c)  # articles à traduire
+            except Exception as e:  # site injoignable : la base locale reste la référence
+                errors.append(str(e)[:200])
+            try:  # traductions faites
+                ids = result_post_ids()
+                if ids:
+                    draft_cache.update(draft_states(root, c, sorted(ids)))
+            except Exception as e:
+                errors.append(str(e)[:200])
+            finally:
+                last_sync[0] = time.time()
+                sync_error[0] = " ; ".join(errors)
+
+        if wait:
+            with sync_lock:
+                if time.time() - last_sync[0] >= max_age:
+                    work()
+            return
+        if time.time() - last_sync[0] < 30 or not sync_lock.acquire(blocking=False):
+            return
+
+        def background() -> None:
+            try:
+                work()
+            finally:
+                sync_lock.release()
+
+        threading.Thread(target=background, daemon=True, name="verification-brouillons").start()
+
     def all_articles() -> list[dict]:
+        sync(wait=False)
         c = cfg()
         items = store.articles(statuses(root, c["wordpress"]["site"]), store.results())
         if runs.current and runs.current.status == "running":
@@ -201,6 +298,9 @@ def create_app(root: Path, runs: RunManager | None = None,
             "templates": templates, "specs": len(list(spec_dir.glob("*.pdf"))) if spec_dir.is_dir() else 0,
             "counts": {s: sum(1 for i in items if i["status"] == s) for s in ("pending", "done", "error", "running", "queued")},
             "total": len(items), "running": runs.running,
+            "restart_needed": code_stamp(root) > started_stamp + 1,  # redémarrage automatique en attente
+            "ui_version": ui_version(),
+            "drafts_check_error": sync_error[0],
         }
 
     # --- articles -----------------------------------------------------------------------------------------
@@ -210,7 +310,15 @@ def create_app(root: Path, runs: RunManager | None = None,
 
     @app.post("/api/articles/urls")
     def add_urls(body: UrlsIn):
-        return store.add_urls(body.urls, [t.strip() for t in body.tags], body.illustration)
+        r = store.add_urls(body.urls, [t.strip() for t in body.tags], body.illustration)
+        # adresses déjà traduites autrefois (brouillon TOUJOURS présent dans WordPress, vérifié sur le site) :
+        # elles ne seront pas « à traduire », il faut le dire
+        if r["added"]:
+            sync(wait=True)
+        state = statuses(root, cfg()["wordpress"]["site"])
+        r["already_done"] = [{"url": u, "draft_url": state[u][1]} for u in r["added"]
+                             if state.get(u, ("", ""))[0] == "published"]
+        return r
 
     @app.post("/api/articles/files")
     async def add_files(files: list[UploadFile] = File(...)):
@@ -252,6 +360,7 @@ def create_app(root: Path, runs: RunManager | None = None,
                 raise StoreError("Configurez d'abord votre compte WordPress (menu Réglages).")
         import inputs
 
+        sync(wait=True)  # un brouillon mis à la corbeille dans WordPress ne compte plus comme « fait »
         jobs = inputs.csv_jobs(str(store.csv_path)) if store.csv_path.exists() else []
         if store.md_dir.is_dir():
             jobs += inputs.md_jobs(str(store.md_dir))
@@ -287,15 +396,31 @@ def create_app(root: Path, runs: RunManager | None = None,
         return {"ok": True}
 
     # --- résultats ----------------------------------------------------------------------------------------
+    def wp_status(r: dict) -> str | None:
+        """État du brouillon dans WordPress (None : essai, ou état inconnu)."""
+        m = POST_ID.search(r.get("draft_url") or "") if r.get("mode") == "brouillon" else None
+        return draft_cache.get(int(m.group(1))) if m else None
+
     @app.get("/api/results")
     def results():
+        sync(wait=True, max_age=30)  # la page doit refléter WordPress (brouillons mis à la corbeille…)
+        if result_post_ids() - draft_cache.keys():  # nouveau brouillon, ou vérification précédente ratée : on revérifie
+            sync(wait=True, max_age=0)
         items = sorted(store.results().values(), key=lambda r: r.get("date", ""), reverse=True)
         return [{k: r.get(k) for k in ("id", "key", "mode", "date", "title", "source_title", "source_url", "slug",
-                                        "draft_url", "engine")} | {"warnings": len(r.get("warnings", []))} for r in items]
+                                        "draft_url", "engine")}
+                | {"warnings": len(r.get("warnings", [])), "wp_status": wp_status(r)} for r in items]
 
     @app.get("/api/results/{rid}")
     def result(rid: str):
-        return store.result(rid)
+        sync(wait=False)
+        r = store.result(rid)
+        return r | {"wp_status": wp_status(r)}
+
+    @app.post("/api/results/delete")
+    def delete_result(body: KeyIn):
+        """Retire une traduction de la liste (le fichier est rangé dans output/results/retires/, jamais effacé)."""
+        return {"ok": True, "message": store.archive_result(body.key)}
 
     # --- réglages et compte ---------------------------------------------------------------------------------
     @app.get("/api/settings")
@@ -324,6 +449,15 @@ def create_app(root: Path, runs: RunManager | None = None,
             raise StoreError("Indiquez le nom d'utilisateur et le mot de passe d'application.")
         return save_credentials(root, c, body.username.strip(), body.app_password.strip())
 
+    @app.post("/api/account/logout")
+    def logout():
+        """Déconnexion : oublie l'identifiant et le mot de passe d'application enregistrés sur cet ordinateur.
+        Le mot de passe reste valable côté WordPress (il se révoque dans le Profil du compte)."""
+        if runs.running:
+            raise StoreError("Attendez la fin de la traduction en cours pour vous déconnecter.")
+        (root / "wp_credentials.json").unlink(missing_ok=True)
+        return {"ok": True}
+
     @app.get("/api/logs")
     def logs(lines: int = 150):
         f = root / "agent.log"
@@ -336,7 +470,7 @@ def create_app(root: Path, runs: RunManager | None = None,
         raise HTTPException(404, "Adresse inconnue.")
 
     # --- interface (fichiers construits par « npm run build » dans webapp/static) ---------------------------
-    static = Path(__file__).parent / "static"
+    static = STATIC
     if (static / "assets").is_dir():
         app.mount("/assets", StaticFiles(directory=static / "assets"), name="assets")
 

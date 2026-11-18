@@ -2,7 +2,7 @@
 import csv
 import re
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import trafilatura
 
@@ -163,10 +163,11 @@ def _with_recall_footnotes(precise: str, recall: str) -> str:
     return _mark_calls(body, {n for n, _ in notes}) + "\n\n--- NOTES DE BAS DE PAGE DE LA SOURCE ---\n\n" + block
 
 
-def _text(html: str | None) -> str | None:
+def _text(html: str | None, url: str | None = None) -> str | None:
     if not html:
         return None
-    kw = dict(output_format="markdown", include_formatting=True, include_links=True)
+    # url : trafilatura s'en sert pour rendre absolus les liens relatifs (« /autre-page » -> « https://site/autre-page »)
+    kw = dict(output_format="markdown", include_formatting=True, include_links=True, url=url)
     # favor_precision évite les « articles liés » / appels aux dons en fin de page
     precise = trafilatura.extract(html, favor_precision=True, **kw)
     if not precise or len(precise) < 200:
@@ -177,10 +178,10 @@ def _text(html: str | None) -> str | None:
 
 def extract(url: str) -> Article:
     html = trafilatura.fetch_url(url)
-    text = _text(html)
+    text = _text(html, url)
     if not text:  # téléchargement simple insuffisant : on retente avec un navigateur
         html = _render(url)
-        text = _text(html)
+        text = _text(html, url)
     if not text:
         raise RuntimeError(f"Texte introuvable (page bloquée, payante ou vide) : {url}")
     meta = trafilatura.extract_metadata(html)
@@ -250,6 +251,16 @@ def _substack_author(raw: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+_REL_LINK = re.compile(r"(\]\(\s*<?)(?!(?:https?:|mailto:|#|www\.))([^)\s>]+)", re.I)
+
+
+def absolutize_links(text: str, base: str) -> str:
+    """Liens Markdown relatifs « [texte](/page) » rendus absolus d'après l'adresse de l'article (sinon inutilisables)."""
+    if not base.startswith(("http://", "https://")):
+        return text
+    return _REL_LINK.sub(lambda m: m.group(1) + urljoin(base, m.group(2)), text)
+
+
 def article_from_markdown(path) -> Article:
     """Article à traduire à partir d'un fichier .md : titre = nom du fichier, texte nettoyé, URL d'origine si retrouvée."""
     from pathlib import Path
@@ -261,7 +272,8 @@ def article_from_markdown(path) -> Article:
     if len(text) < 200:
         raise RuntimeError(f"Texte trop court dans {p.name} ({len(text)} caractères)")
     author = meta.get("author") or _substack_author(raw)
-    return Article(url=meta.get("url") or find_source_url(raw) or "", title=meta.get("title") or p.stem.strip(), text=text,
+    url = meta.get("url") or find_source_url(raw) or ""
+    return Article(url=url, title=meta.get("title") or p.stem.strip(), text=absolutize_links(text, url),
                    tags=[], author=author, illustration=meta.get("illustration", ""))
 
 

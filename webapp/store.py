@@ -148,6 +148,8 @@ class Store:
             "tags": tags, "illustration": illustration,
             "status": {"published": "done", "error": "error"}.get(status, "pending"),
             "error": info if status == "error" else "",
+            "note": ("L'ancien brouillon a été mis à la corbeille ou supprimé dans WordPress : l'article est de nouveau "
+                     "à traduire.") if status == "removed" else "",
             "draft_url": info if status == "published" else "",
             "result_id": draft["id"] if draft else None,
             "preview_id": preview["id"] if preview else None,
@@ -198,6 +200,19 @@ class Store:
                 except (ValueError, KeyError):
                     continue
         return out
+
+    def archive_result(self, rid: str) -> str:
+        """Retire une traduction de la liste « Traductions faites » : son fichier est déplacé dans output/results/retires/
+        (récupérable), jamais effacé. Ne touche à rien dans WordPress."""
+        if not re.fullmatch(r"[a-z0-9-]+", rid) or not (self.results_dir / f"{rid}.json").exists():
+            raise StoreError("Résultat introuvable.")
+        target_dir = self.results_dir / "retires"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target, n = target_dir / f"{rid}.json", 2
+        while target.exists():
+            target, n = target_dir / f"{rid} ({n}).json", n + 1
+        shutil.move(str(self.results_dir / f"{rid}.json"), str(target))
+        return f"Traduction retirée de la liste (fichier rangé dans output/results/retires/{target.name})."
 
     def result(self, rid: str) -> dict:
         if not re.fullmatch(r"[a-z0-9-]+", rid):

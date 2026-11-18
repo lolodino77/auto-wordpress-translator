@@ -28,8 +28,10 @@ _LINK_ATTRS = re.compile(r'<a href="[^"]+" target="([^"]+)" rel="([^"]+)">')
 _TOP_LEVEL = re.compile(r"<(p|h[1-6]|ul|ol|blockquote)\b[^>]*>(.*?)</\1>", re.S | re.I)
 _PLAIN_LINK = re.compile(r'<a href="(https?://[^"]*)">')
 
-PLACEHOLDER_CAPTION = ("Illustration de couverture : <strong>À COMPLÉTER</strong> "
-                       "(artiste, <em>titre de l'œuvre</em>, technique, date, lieu de conservation).")
+# Même forme que la légende des modèles publiés (« Jean-Pierre-Laurent Houel,&nbsp;<em>Prise de la Bastille…</em>,
+# peinture à l'eau, 1789. ») : seul le titre de l'œuvre est en italique (spec), sans parenthèses. Il suffit d'écrire
+# par-dessus chaque mot, la mise en forme est déjà la bonne. « À COMPLÉTER » (texte normal) signale la légende à finir.
+PLACEHOLDER_CAPTION = "Illustration de couverture : Artiste À COMPLÉTER,\u00a0<em>Titre de l'œuvre</em>, technique, date."
 
 
 @dataclass(frozen=True)
@@ -151,7 +153,7 @@ def caption_inner(illustration: str) -> str:
     text = re.sub(r"\*([^*]+)\*|(?<!\w)_([^_]+)_(?!\w)", lambda m: f"<em>{m.group(1) or m.group(2)}</em>", text)
     if not re.match(r"(?i)illustration", text):
         text = "Illustration de couverture : " + text
-    return rules.apply_all(text)[0]
+    return re.sub(r",[ \u00a0]*<em>", ",\u00a0<em>", rules.apply_all(text)[0])  # « ,&nbsp;<em> » comme les modèles
 
 
 def assemble(intro: str, body_html: str, illustration: str, has_notes: bool, tpl: Templates) -> str:
