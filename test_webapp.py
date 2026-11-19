@@ -305,6 +305,40 @@ class WebappTest(unittest.TestCase):
         os.utime(f, (later, later))
         self.assertTrue(self.c.get("/api/status").json()["restart_needed"])
 
+    def test_quit_button(self):
+        calls = []
+        app = create_app(self.root, runs=self.runs, statuses=lambda r, s: {}, quit_callback=lambda: calls.append("quit"))
+        c = TestClient(app, base_url="http://127.0.0.1:8710")
+        self.assertEqual(c.post("/api/quit").status_code, 403)  # sans en-tête
+        self.assertEqual(c.post("/api/quit", headers=H).status_code, 200)
+        for _ in range(40):
+            if calls:
+                break
+            time.sleep(0.05)
+        self.assertEqual(calls, ["quit"])
+
+    def test_quit_refused_during_a_translation_and_without_callback(self):
+        self.assertEqual(self.c.post("/api/quit", headers=H).status_code, 400)  # pas de callback : tests, dev
+        calls = []
+        app = create_app(self.root, runs=self.runs, statuses=lambda r, s: {}, quit_callback=lambda: calls.append(1))
+        c = TestClient(app, base_url="http://127.0.0.1:8710")
+        self.c.post("/api/articles/urls", headers=H, json={"urls": ["https://example.com/a"]})
+        self.release.clear()
+        self.c.post("/api/runs", headers=H, json={"mode": "apercu"})
+        r = c.post("/api/quit", headers=H)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("traduction", r.json()["detail"])
+        self.release.set()
+        self.wait_run()
+        time.sleep(0.8)
+        self.assertEqual(calls, [])
+
+    def test_identity_says_which_copy_answers(self):
+        r = self.c.get("/api/identity").json()
+        self.assertEqual(r["app"], "traducteur-wordpress")
+        self.assertEqual(Path(r["root"]), self.root.resolve())
+        self.assertFalse(r["running"])
+
     def test_status_gives_interface_version(self):
         self.assertIn("ui_version", self.c.get("/api/status").json())
 
@@ -375,6 +409,110 @@ class AutoRestart(unittest.TestCase):
         (root / "notes.txt").write_text("pas du code", encoding="utf-8")
         self.assertEqual(code_stamp(root), 1000)
         shutil.rmtree(root, ignore_errors=True)
+
+
+class GeminiConnection(unittest.TestCase):
+    """Connexion facultative à Gemini : fenêtre ouverte à la demande, jamais en même temps qu'une traduction."""
+
+    def setUp(self):
+        from webapp.gemini_login import GeminiLogin
+        self.root = Path(tempfile.mkdtemp())
+        shutil.copy(HERE / "config.toml", self.root / "config.toml")
+        shutil.copytree(HERE / "articles_templates", self.root / "articles_templates")
+        (self.root / "input").mkdir()
+        (self.root / "wp_credentials.json").write_text("{}", encoding="utf-8")
+        self.window = threading.Event()
+        self.logged = False
+
+        def session(profile_dir, on_check, should_stop):  # fenêtre simulée : se « connecte » puis attend la fermeture
+            self.window.set()
+            on_check(self.logged)
+            for _ in range(200):
+                if should_stop():
+                    break
+                time.sleep(0.01)
+            on_check(self.logged)
+
+        self.gemini = GeminiLogin(self.root, session=session)
+        self.release = threading.Event()
+        self.runs = RunManager(lambda run: self.release.wait(5))
+        self.c = TestClient(create_app(self.root, runs=self.runs, statuses=lambda r, s: {},
+                                       reconcile=lambda r, c: None, draft_states=lambda r, c, i: {}, gemini=self.gemini),
+                            base_url="http://127.0.0.1:8710")
+
+    def tearDown(self):
+        self.gemini.close()
+        self.release.set()
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def wait_closed(self):
+        for _ in range(200):
+            if not self.gemini.window_open:
+                return
+            time.sleep(0.01)
+
+    def test_never_checked_at_first(self):
+        st = self.c.get("/api/gemini").json()
+        self.assertIsNone(st["logged_in"])
+        self.assertFalse(st["window_open"])
+        self.assertIsNone(self.c.get("/api/status").json()["gemini_logged_in"])
+
+    def test_login_window_records_the_connection(self):
+        self.logged = True
+        self.assertEqual(self.c.post("/api/gemini/login").status_code, 403)  # sans en-tête
+        self.assertTrue(self.c.post("/api/gemini/login", headers=H).json()["window_open"])
+        self.assertTrue(self.window.wait(2))
+        self.assertEqual(self.c.post("/api/gemini/login", headers=H).status_code, 400)  # une seule fenêtre
+        self.c.post("/api/gemini/close", headers=H)
+        self.wait_closed()
+        st = self.c.get("/api/gemini").json()
+        self.assertFalse(st["window_open"])
+        self.assertTrue(st["logged_in"])
+        self.assertTrue(self.c.get("/api/status").json()["gemini_logged_in"])
+
+    def test_no_translation_while_the_login_window_is_open(self):
+        self.c.post("/api/articles/urls", headers=H, json={"urls": ["https://example.com/a"]})
+        self.c.post("/api/gemini/login", headers=H)
+        self.assertTrue(self.window.wait(2))
+        r = self.c.post("/api/runs", headers=H, json={"mode": "brouillon"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("Gemini", r.json()["detail"])
+
+    def test_no_login_window_during_a_translation(self):
+        self.c.post("/api/articles/urls", headers=H, json={"urls": ["https://example.com/a"]})
+        self.release.clear()
+        self.assertEqual(self.c.post("/api/runs", headers=H, json={"mode": "brouillon"}).status_code, 200)
+        r = self.c.post("/api/gemini/login", headers=H)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("traduction est en cours", r.json()["detail"])
+
+    def test_google_session_cookies(self):
+        from webapp.gemini_login import is_logged_in
+        self.assertFalse(is_logged_in([{"name": "NID"}, {"name": "AEC"}]))  # visiteur anonyme
+        self.assertTrue(is_logged_in([{"name": "NID"}, {"name": "__Secure-1PSID"}]))
+
+    def test_login_read_from_the_profile_on_disk(self):
+        """La fenêtre de connexion n'est pas pilotée (Google le refuse) : la connexion se lit dans le profil."""
+        import sqlite3
+        from webapp.gemini_login import cookie_names
+        profile = self.root / "profil"
+        self.assertEqual(cookie_names(str(profile)), set())  # profil jamais ouvert
+        (profile / "Default" / "Network").mkdir(parents=True)
+        con = sqlite3.connect(profile / "Default" / "Network" / "Cookies")
+        con.execute("CREATE TABLE cookies (host_key TEXT, name TEXT, encrypted_value BLOB)")
+        con.executemany("INSERT INTO cookies VALUES (?, ?, ?)",
+                        [(".google.com", "__Secure-1PSID", b"x"), ("gemini.google.com", "NID", b"x"), (".exemple.fr", "SID", b"x")])
+        con.commit()
+        con.close()
+        self.assertEqual(cookie_names(str(profile)), {"__Secure-1PSID", "NID"})  # seulement Google, seulement les noms
+
+    def test_chrome_required_for_the_login_window(self):
+        from unittest import mock
+        import webapp.gemini_login as gl
+        with mock.patch("llm_browser.installed_chrome", return_value=None):
+            with self.assertRaises(RuntimeError) as e:
+                gl.chromium_path()
+        self.assertIn("Google Chrome", str(e.exception))
 
 
 if __name__ == "__main__":

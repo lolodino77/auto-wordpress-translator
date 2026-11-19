@@ -88,7 +88,7 @@ export default function SetupGuide({ site }: { site: string }) {
           <p className="guide-then">
             Quand l'administrateur vous confirme que le compte est créé, suivez les étapes ci-dessous <strong>avec ce nouveau compte</strong> :
           </p>
-          <AppPasswordSteps host={host} first={1} />
+          <AppPasswordSteps host={host} first={1} role="editor" />
         </div>
       )}
 
@@ -99,47 +99,62 @@ export default function SetupGuide({ site }: { site: string }) {
             <Step n={1} title="Créez le compte limité (une seule fois)">
               <p>
                 Connectez-vous à <strong>{host}/wp-admin</strong>. Dans le menu de gauche, cliquez sur <strong>Comptes</strong> puis{" "}
-                <strong>Ajouter</strong>. Choisissez un identifiant (par exemple « traduction »), une adresse e-mail <strong>différente</strong>{" "}
+                <strong>Ajouter un compte</strong>. Choisissez un identifiant (par exemple « traduction »), une adresse e-mail <strong>différente</strong>{" "}
                 de celles des autres comptes, et le rôle <strong>Contributeur</strong>. Cliquez sur <strong>Ajouter un compte</strong>.
               </p>
               <Shot file="a1-ajouter-compte.png" alt="Formulaire d'ajout d'un compte, rôle Contributeur" />
             </Step>
           </ol>
-          <AppPasswordSteps host={host} first={2} />
+          <AppPasswordSteps host={host} first={2} role="admin" />
         </div>
       )}
     </div>
   );
 }
 
-function AppPasswordSteps({ host, first }: { host: string; first: number }) {
+function AppPasswordSteps({ host, first, role }: { host: string; first: number; role: Role }) {
+  const admin = role === "admin";
+  const n = admin ? first : first + 1; // numéro de l'étape « ouvrir le compte »
   return (
     <ol className="guide-steps">
-      <Step n={first} title="Connectez-vous avec le compte limité">
+      {!admin && (
+        <Step n={first} title="Connectez-vous avec le compte limité">
+          <p>
+            Ouvrez <strong>{host}/wp-admin</strong> et connectez-vous avec <strong>le compte Contributeur</strong> (pas votre compte
+            principal). Astuce : utilisez une fenêtre de navigation privée pour ne pas être déconnecté de votre compte habituel.
+          </p>
+        </Step>
+      )}
+      {admin ? (
+        <Step n={n} title="Ouvrez le compte limité">
+          <p>
+            Connecté à <strong>{host}/wp-admin</strong>, cliquez dans le menu noir à gauche sur <strong>Comptes</strong>, puis sur le compte
+            limité (par exemple « autotraduction ») pour le modifier. Descendez tout en bas de la page, jusqu'à la zone{" "}
+            <strong>« Mots de passe d'application »</strong>.
+          </p>
+          <Shot file="1-comptes.png" alt="Menu Comptes de WordPress" />
+        </Step>
+      ) : (
+        <Step n={n} title="Ouvrez votre Profil">
+          <p>
+            Avec ce compte limité, le menu noir à gauche s'appelle <strong>Profil</strong> : cliquez dessus, puis descendez tout en bas de
+            la page, jusqu'à la zone <strong>« Mots de passe d'application »</strong>.
+          </p>
+          <Shot file="1-profil.png" alt="Menu Profil de WordPress" />
+        </Step>
+      )}
+      <Step n={n + 1} title="Créez le mot de passe">
         <p>
-          Ouvrez <strong>{host}/wp-admin</strong> et connectez-vous avec <strong>le compte Contributeur</strong> (pas votre compte principal).
-          Astuce : utilisez une fenêtre de navigation privée pour ne pas être déconnecté de votre compte habituel.
-        </p>
-      </Step>
-      <Step n={first + 1} title="Ouvrez votre Profil">
-        <p>
-          Dans le menu noir à gauche, cliquez sur <strong>Profil</strong>, puis descendez tout en bas de la page, jusqu'à la zone{" "}
-          <strong>« Mots de passe d'application »</strong>.
-        </p>
-        <Shot file="1-profil.png" alt="Menu Profil de WordPress" />
-      </Step>
-      <Step n={first + 2} title="Créez le mot de passe">
-        <p>
-          Dans la case « Nouveau nom de mot de passe d'application », écrivez par exemple <strong>Traducteur</strong>, puis cliquez sur le
+          Dans la case « Nouveau nom du mot de passe d'application », écrivez par exemple <strong>Traducteur</strong>, puis cliquez sur le
           bouton <strong>Ajouter un mot de passe d'application</strong>.
         </p>
-        <Shot file="2-nouveau-mot-de-passe.png" alt="Zone Mots de passe d'application dans le Profil" />
+        <Shot file="2-nouveau-mot-de-passe.png" alt="Zone Mots de passe d'application" />
       </Step>
-      <Step n={first + 3} title="Copiez-le et collez-le ci-dessus">
+      <Step n={n + 2} title="Copiez-le et collez-le ci-dessus">
         <p>
           WordPress affiche un mot de passe de plusieurs groupes de lettres.{" "}
           <strong>Copiez-le tout de suite : il ne sera plus jamais affiché.</strong> Collez-le dans le champ « Mot de passe d'application » de
-          cette page, avec l'identifiant du compte, puis cliquez sur <strong>Se connecter</strong>.
+          cette page, avec l'identifiant du compte limité, puis cliquez sur <strong>Se connecter</strong>.
         </p>
         <Shot file="3-mot-de-passe-affiche.png" alt="Mot de passe d'application affiché par WordPress" />
         <p className="guide-note">

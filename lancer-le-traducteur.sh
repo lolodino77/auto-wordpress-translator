@@ -4,7 +4,9 @@
 cd "$(dirname "$0")" || exit 1
 ENVNAME=auto-wordpress-translator
 PY=""
-for base in "$HOME/anaconda3" "$HOME/miniconda3" "$HOME/miniforge3" "$HOME/opt/anaconda3" "$HOME/opt/miniconda3" \
+# Python installé à côté par l'installateur (dossier .venv), sinon l'environnement conda (développement).
+if [ -x ".venv/bin/python" ]; then PY="$(pwd)/.venv/bin/python"; fi
+[ -n "$PY" ] || for base in "$HOME/anaconda3" "$HOME/miniconda3" "$HOME/miniforge3" "$HOME/opt/anaconda3" "$HOME/opt/miniconda3" \
             "/opt/anaconda3" "/opt/miniconda3" "/opt/homebrew/anaconda3" "/opt/homebrew/Caskroom/miniconda/base" \
             "/usr/local/anaconda3" "/usr/local/miniconda3"; do
   if [ -x "$base/envs/$ENVNAME/bin/python" ]; then PY="$base/envs/$ENVNAME/bin/python"; break; fi

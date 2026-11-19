@@ -1,0 +1,47 @@
+TRADUCTEUR D'ARTICLES - VERSION PORTABLE POUR WINDOWS
+=====================================================
+
+Il vous faut : Windows 10 ou 11, une connexion Internet, et environ 1 Go de place libre.
+Rien ne s'installe ailleurs sur l'ordinateur : tout reste dans le dossier que vous allez extraire.
+Aucun mot de passe d'administrateur n'est demandé.
+
+PREMIÈRE FOIS
+-------------
+1. Clic droit sur le fichier .zip reçu, puis « Extraire tout... ». Choisissez un emplacement simple,
+   par exemple le Bureau ou C:\Traducteur, puis « Extraire ».
+   (Évitez si possible un dossier OneDrive : le programme pèse environ 700 Mo une fois prêt.)
+2. Dans le dossier extrait, double-cliquez sur « Ouvrir le Traducteur ».
+   Si Windows affiche « Windows a protégé votre ordinateur » : cliquez sur « Informations complémentaires »,
+   puis sur « Exécuter quand même ». (Ce message s'affiche pour tout programme qui ne vient pas d'un magasin.)
+3. Une fenêtre noire prépare le programme (Python, navigateur...). Comptez quelques minutes, une seule fois.
+   Ne la fermez pas. À la fin, le Traducteur s'ouvre dans votre navigateur.
+
+ENSUITE
+-------
+- Dans le dossier, double-cliquez sur l'icône « Traducteur d'articles » (carré bleu avec « 文 » et « A »),
+  créée à côté de « Ouvrir le Traducteur ». Les deux font la même chose.
+  Astuce : clic droit sur l'icône > « Envoyer vers » > « Bureau (créer un raccourci) » pour l'avoir sur le Bureau.
+- Le Traducteur s'ouvre dans votre navigateur. Pour le fermer : bouton « Quitter », en haut à droite de la page.
+  (Fermer seulement l'onglet ne l'arrête pas : il continue discrètement, et l'icône rouvre la page.)
+- La première fois, connectez-vous avec votre second compte WordPress (rôle « Contributeur ») et son
+  « mot de passe d'application » : la page de connexion explique comment les obtenir, pas à pas.
+- FORTEMENT CONSEILLÉ, une seule fois : Réglages > « Se connecter à Gemini », avec votre compte Google (gratuit).
+  Sans compte, Gemini n'utilise que des modèles limités : traductions moins bonnes et refus plus fréquents.
+  Il faut Google Chrome installé sur l'ordinateur (gratuit : google.com/chrome).
+
+DÉPLACER LE DOSSIER
+-------------------
+Possible à tout moment (Traducteur fermé). Ensuite, double-cliquez sur « Ouvrir le Traducteur » : il se
+répare tout seul en environ une minute, puis l'icône fonctionne de nouveau.
+
+METTRE À JOUR
+-------------
+Quand vous recevez une nouvelle version : fermez le Traducteur, puis extrayez le nouveau .zip AU MÊME
+ENDROIT que l'ancien et acceptez de remplacer les fichiers. Double-cliquez ensuite sur « Ouvrir le Traducteur ».
+Vos identifiants, votre liste d'articles et vos traductions sont conservés.
+
+DÉSINSTALLER
+------------
+Fermez le Traducteur (bouton « Quitter »), puis supprimez le dossier.
+Attention : vos identifiants, votre liste d'articles et vos traductions enregistrés dans ce dossier sont supprimés
+avec lui. Les brouillons déjà créés dans WordPress ne sont pas touchés.

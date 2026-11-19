@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ArrowDown, ArrowUp, CheckCircle2, XCircle } from "lucide-react";
-import { api, type Settings } from "../api";
+import { api, type GeminiStatus, type Settings } from "../api";
 import { errorText, useApp } from "../context";
 import { InlineNotice } from "../components";
 import { ENGINE_LABEL, ROLE_LABEL } from "../util";
@@ -106,6 +106,8 @@ export default function SettingsPage() {
               </button>
             </p>
           </form>
+
+          <GeminiSection />
 
           <AccountSection mode={loaded.mode} site={status?.site ?? loaded.site} />
         </>
@@ -242,6 +244,97 @@ function AccountSection({ mode, site }: { mode: Settings["mode"]; site: string }
           </p>
         </form>
       )}
+    </>
+  );
+}
+
+function GeminiSection() {
+  const { notify, refresh } = useApp();
+  const [st, setSt] = useState<GeminiStatus | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.gemini().then((s) => alive && setSt(s)).catch(() => undefined);
+    load();
+    const t = window.setInterval(load, 2000); // suit la fenêtre de connexion pendant qu'elle est ouverte
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (st && !st.window_open) refresh(); // met à jour le tableau de bord quand la fenêtre se ferme
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [st?.window_open]);
+
+  async function open() {
+    try {
+      setSt(await api.geminiLogin());
+    } catch (e) {
+      notify("error", errorText(e));
+    }
+  }
+
+  async function done() {
+    await api.geminiClose().catch(() => undefined);
+  }
+
+  return (
+    <>
+      <h2 className="section-title">Compte Gemini (facultatif, fortement conseillé)</h2>
+      <p className="page-intro">
+        Sans compte, Gemini ne donne accès qu'à ses modèles les plus limités : traductions moins bonnes et refus plus fréquents
+        (« Cela dépasse mes capacités »). Avec un compte Google (gratuit), il utilise de bien meilleurs modèles. La connexion se fait
+        une seule fois : Gemini s'en souvient ensuite. Le programme ne voit jamais votre mot de passe Google.
+      </p>
+      <div className="postbox" style={{ maxWidth: 640 }}>
+        <div className="inside">
+          {st === null ? (
+            <p className="muted">Vérification…</p>
+          ) : st.window_open ? (
+            <>
+              <InlineNotice kind="info">
+                <strong>Une fenêtre Chrome est ouverte sur Gemini.</strong> Cliquez sur « Se connecter » en haut à droite de Gemini et entrez
+                votre compte Google. Une fois connecté, fermez cette fenêtre Chrome (ou cliquez sur « C'est fait » ci-dessous) : la connexion est
+                alors vérifiée.
+              </InlineNotice>
+              <p style={{ margin: "12px 0 0" }}>
+                {st.logged_in ? (
+                  <strong style={{ color: "var(--green)" }}>✓ Connexion détectée.</strong>
+                ) : (
+                  <span className="muted">La connexion sera vérifiée à la fermeture de la fenêtre.</span>
+                )}{" "}
+                <button className="button button-primary" onClick={done}>
+                  C'est fait
+                </button>
+              </p>
+            </>
+          ) : (
+            <>
+              {st.logged_in ? (
+                <InlineNotice kind="ok">Gemini est connecté à un compte Google : les meilleurs modèles sont utilisés.</InlineNotice>
+              ) : (
+                <InlineNotice kind="warn">
+                  {st.logged_in === false
+                    ? "Gemini n'est connecté à aucun compte : seuls des modèles limités sont utilisés."
+                    : "Connexion à Gemini jamais vérifiée : conseillé de vous connecter à un compte Google."}
+                </InlineNotice>
+              )}
+              {st.error && (
+                <div style={{ marginTop: 10 }}>
+                  <InlineNotice kind="bad">{st.error}</InlineNotice>
+                </div>
+              )}
+              <p style={{ margin: "12px 0 0" }}>
+                <button className={"button" + (st.logged_in ? "" : " button-primary")} onClick={open}>
+                  {st.logged_in ? "Changer de compte Gemini" : "Se connecter à Gemini"}
+                </button>
+              </p>
+            </>
+          )}
+        </div>
+      </div>
     </>
   );
 }

@@ -129,7 +129,16 @@ def real_execute(run: Run) -> None:
         except Exception as e:
             run.log(f"Catégories du site illisibles ({str(e)[:160]}) : aucune catégorie ne sera proposée.")
     run.log("Ouverture du navigateur (une fenêtre va apparaître : ne la fermez pas).")
-    with Browser(cfg["llm"]["profile_dir"], cfg["llm"]["headless"]) as browser:
+    with Browser(cfg["llm"]["profile_dir"], cfg["llm"]["headless"], prefs=cfg["llm"], log=run.log) as browser:
+        try:  # mémorise si Gemini est connecté à un compte (affiché dans le tableau de bord et les réglages)
+            from webapp.gemini_login import is_logged_in, save_status
+
+            logged = is_logged_in(browser.ctx.cookies("https://gemini.google.com"))
+            save_status(Path("."), logged)
+            if not logged:
+                run.log("Gemini n'est connecté à aucun compte : modèles limités. Conseillé : Réglages > Se connecter à Gemini.")
+        except Exception:
+            pass
         for item in run.items:
             if run.stop_requested:
                 break

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   CheckSquare,
   ExternalLink,
@@ -11,6 +11,7 @@ import {
   Loader2,
   LogOut,
   Menu,
+  Power,
   Settings,
   Sparkles,
 } from "lucide-react";
@@ -23,7 +24,7 @@ function siteUrl(site: string) {
 }
 
 export function AdminBar({ onMenu }: { onMenu: () => void }) {
-  const { status, account, confirm, notify, refreshAccount } = useApp();
+  const { status, account, confirm, notify, refreshAccount, markClosed } = useApp();
   const name = account?.name || account?.username;
   return (
     <div id="adminbar">
@@ -79,6 +80,25 @@ export function AdminBar({ onMenu }: { onMenu: () => void }) {
             <LogOut size={16} /> <span className="ab-hide-mobile">Déconnexion</span>
           </button>
         )}
+        <button
+          title="Fermer le programme"
+          onClick={async () => {
+            const ok = await confirm({
+              title: "Quitter le Traducteur ?",
+              body: <p>Le programme sera fermé. Pour le rouvrir, double-cliquez sur « Ouvrir le Traducteur » (ou sur l'icône « Traducteur d'articles ») dans le dossier du Traducteur.</p>,
+              confirmLabel: "Quitter",
+            });
+            if (!ok) return;
+            try {
+              await api.quit();
+              markClosed();
+            } catch (e) {
+              notify("error", errorText(e));
+            }
+          }}
+        >
+          <Power size={16} /> <span className="ab-hide-mobile">Quitter</span>
+        </button>
       </div>
     </div>
   );
@@ -102,7 +122,7 @@ export function AdminMenu() {
   const { pathname } = useLocation();
   const { status } = useApp();
   const pending = status ? status.counts.pending + status.counts.error : 0;
-  const inArticles = pathname.startsWith("/articles");
+  const inArticles = pathname.startsWith("/articles") || pathname.startsWith("/ajouter");
   return (
     <nav id="adminmenu" aria-label="Menu principal">
       <ul>
@@ -114,7 +134,20 @@ export function AdminMenu() {
           label="Liste des articles à traduire"
           current={inArticles}
           extra={pending > 0 ? <span className="count-bubble" title={`${pending} à traduire`}>{pending}</span> : undefined}
-        />
+        >
+          <ul className="submenu">
+            <li>
+              <NavLink to="/articles" end className={({ isActive }) => (isActive ? "current" : "")}>
+                Tous les articles
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/ajouter" className={({ isActive }) => (isActive ? "current" : "")}>
+                Ajouter des articles
+              </NavLink>
+            </li>
+          </ul>
+        </MenuItem>
         <MenuItem
           to="/traduction"
           icon={Sparkles}
@@ -152,7 +185,8 @@ export function AdminLayout() {
       <AdminMenu />
       {offline && (
         <div className="offline-banner" role="alert">
-          Le programme de traduction ne répond plus. Relancez-le (double-clic sur « Lancer le traducteur »), puis rechargez cette page.
+          Le programme de traduction ne répond plus. Pour le relancer, double-cliquez sur « Ouvrir le Traducteur » (ou sur l'icône « Traducteur d'articles ») dans le dossier du Traducteur, puis
+          rechargez cette page.
         </div>
       )}
       <main id="content" onClick={() => menuOpen && setMenuOpen(false)}>
@@ -161,9 +195,9 @@ export function AdminLayout() {
             // ancienne version du programme (sans mise à jour automatique) : une dernière relance à la main
             <div className="notice notice-warning" role="alert">
               <p>
-                <strong>Le programme a été mis à jour pendant qu'il tournait : relancez-le une dernière fois.</strong> Fermez la fenêtre
-                noire « Traducteur d'articles », puis double-cliquez de nouveau sur « Lancer le traducteur ». Ensuite, les mises à jour
-                s'appliqueront toutes seules.
+                <strong>Le programme a été mis à jour pendant qu'il tournait : relancez-le une dernière fois.</strong> Cliquez sur
+                « Quitter » (en haut à droite) ou fermez la fenêtre noire, puis double-cliquez de nouveau sur l'icône « Traducteur
+                d'articles ». Ensuite, les mises à jour s'appliqueront toutes seules.
               </p>
             </div>
           )}

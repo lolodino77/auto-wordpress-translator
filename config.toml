@@ -24,6 +24,11 @@ engines = ["gemini", "gpt"]        # ordre d'essai ; le suivant sert de secours
 profile_dir = "browser_profile"
 headless = false                   # laissez false : moins de captchas
 max_words = 9000                   # au-delà, l'article est ignoré (à découper à la main)
+# Gemini : le meilleur modèle accessible au compte est choisi avant chaque article (mode payant sauté s'il n'est pas
+# accessible, puis niveau de réflexion le plus élevé). Par défaut (llm_browser.py) : modes « Pro », puis « Code et analyse »
+# (Argon), puis « Auto » ; réflexion « Élevé », sinon « Moyen ». Pour changer l'ordre, décommentez et adaptez :
+# gemini_modes = ['\bPro\b', 'Argon|Code et analyse', '^Auto']
+# gemini_thinking = ['Élevé', 'Moyen']
 
 prompt = """Tu es traducteur professionnel anglais vers français. Ta réponse doit être ENTIÈREMENT en français (titre, tags et corps) : ne recopie jamais l'anglais. Traduis fidèlement l'article ci-dessous, dans un français naturel en privilégiant la voix active car c'est trop typique anglais de garder la voix passive, sans résumer ni omettre aucun passage. Conserve la structure (titres, paragraphes, listes, citations, liens).
 

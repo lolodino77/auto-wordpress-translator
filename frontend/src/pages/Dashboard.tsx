@@ -168,6 +168,20 @@ export default function Dashboard() {
                       : status.templates.error}
                   </div>
                 </li>
+                <li className={status.gemini_logged_in ? "ok" : "warn"}>
+                  {status.gemini_logged_in ? <CheckCircle2 /> : <AlertTriangle />}
+                  <div className="grow">
+                    <strong>Compte Gemini</strong>
+                    {status.gemini_logged_in ? (
+                      "Connecté : les meilleurs modèles sont utilisés."
+                    ) : (
+                      <>
+                        Non connecté : modèles limités, traductions moins bonnes. Fortement conseillé :{" "}
+                        <Link to="/reglages">se connecter à Gemini</Link>.
+                      </>
+                    )}
+                  </div>
+                </li>
                 <li className={status.specs ? "ok" : "warn"}>
                   {status.specs ? <CheckCircle2 /> : <AlertTriangle />}
                   <div className="grow">

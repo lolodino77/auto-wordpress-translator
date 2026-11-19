@@ -26,6 +26,9 @@ interface AppState {
   /** Faux tant que l'état du compte n'a pas été lu (évite d'afficher la page de connexion une fraction de seconde). */
   accountReady: boolean;
   offline: boolean;
+  /** Vrai après « Quitter » : le programme est arrêté, on affiche l'écran de fin au lieu d'une alerte « ne répond plus ». */
+  closed: boolean;
+  markClosed: () => void;
   /** Augmente à chaque changement de données (ajout, fin de traduction…) : les pages relisent alors leur liste. */
   version: number;
   notices: Notice[];
@@ -64,8 +67,10 @@ function safeToReload(): boolean {
   const el = document.activeElement;
   if (el && ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) return false;
   if (document.querySelector(".modal, .quick-edit")) return false;
-  // champs dont la saisie serait perdue : mot de passe en cours de saisie
-  return !Array.from(document.querySelectorAll<HTMLInputElement>("#content input[type=password]")).some((f) => f.value.trim());
+  // champs dont la saisie serait perdue : adresses collées (page « Ajouter des articles »), mot de passe
+  return !Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+    "#content textarea, #content input[type=password]",
+  )).some((f) => f.value.trim());
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -75,6 +80,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null);
   const [accountReady, setAccountReady] = useState(false);
   const [offline, setOffline] = useState(false);
+  const [closed, setClosed] = useState(false);
+  const closedRef = useRef(false);
+  const markClosed = useCallback(() => {
+    closedRef.current = true;
+    window.clearTimeout(timer.current);
+    setClosed(true);
+  }, []);
   const [version, setVersion] = useState(0);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [pendingConfirm, setPendingConfirm] = useState<(ConfirmOptions & { resolve: (ok: boolean) => void }) | null>(null);
@@ -96,6 +108,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const clearOldNotices = useCallback(() => setNotices((n) => n.filter((x) => Date.now() - x.at < 1500)), []);
 
   const poll = useCallback(async () => {
+    if (closedRef.current) return;
     window.clearTimeout(timer.current);
     let running = false;
     try {
@@ -208,7 +221,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ status, run, account, accountReady, offline, version, notices, notify, dismiss, clearOldNotices, refresh, refreshAccount, startRun, stopRun, confirm }}
+      value={{ status, run, account, accountReady, offline, closed, markClosed, version, notices, notify, dismiss, clearOldNotices, refresh, refreshAccount, startRun, stopRun, confirm }}
     >
       {children}
       {pendingConfirm && (

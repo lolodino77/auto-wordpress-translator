@@ -165,7 +165,7 @@ def main():
         categories = []
         log.warning("Catégories du site illisibles (%s) : aucune catégorie ne sera proposée", e)
 
-    with Browser(cfg["llm"]["profile_dir"], cfg["llm"]["headless"]) as browser:
+    with Browser(cfg["llm"]["profile_dir"], cfg["llm"]["headless"], prefs=cfg["llm"], log=print) as browser:
         for key, csv_tags, load in todo:
             try:
                 draft = process(key, csv_tags, load, cfg, browser, categories)

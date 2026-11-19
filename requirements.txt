@@ -1,6 +1,7 @@
 trafilatura
 playwright
 requests
+pysocks
 truststore
 pypdf
 fastapi

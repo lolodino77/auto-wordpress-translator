@@ -8,7 +8,7 @@ const FAQ: { q: string; a: ReactNode }[] = [
     a: (
       <ol>
         <li>
-          Ouvrez <Link to="/articles">Liste des articles à traduire</Link> : les articles en attente de traduction y sont listés.
+          Menu <Link to="/articles">Liste des articles à traduire</Link>, bouton <Link to="/ajouter">« Ajouter des articles »</Link> : collez l'adresse d'un ou de plusieurs articles en anglais.
         </li>
         <li>
           Cliquez sur <strong>Traduire et créer le brouillon</strong>. Vous suivez l'avancement dans le menu <Link to="/traduction">Traduction</Link>.
@@ -36,6 +36,17 @@ const FAQ: { q: string; a: ReactNode }[] = [
       <p>
         Environ une minute par article (de 30 secondes à quelques minutes). Une fenêtre de navigateur s'ouvre : c'est elle qui dialogue avec l'outil de traduction (Gemini). Ne
         la fermez pas ; vous pouvez la réduire et continuer à travailler.
+      </p>
+    ),
+  },
+  {
+    q: "Faut-il se connecter à Gemini ?",
+    a: (
+      <p>
+        Ce n'est pas obligatoire, mais <strong>fortement conseillé</strong> : sans compte, Gemini n'utilise que ses modèles les plus limités
+        (traductions moins bonnes, refus du type « Cela dépasse mes capacités »). Menu <Link to="/reglages">Réglages</Link>, bouton
+        « Se connecter à Gemini » : une fenêtre s'ouvre, connectez-vous avec votre compte Google (gratuit), puis cliquez sur « C'est fait ».
+        Il suffit de le faire une fois.
       </p>
     ),
   },
@@ -100,9 +111,10 @@ const FAQ: { q: string; a: ReactNode }[] = [
     q: "Comment fermer ou relancer le programme ?",
     a: (
       <p>
-        Pour l'arrêter, fermez la fenêtre noire ouverte au lancement. Pour le relancer, double-cliquez sur « Lancer le traducteur » : cette page
-        s'ouvre toute seule. Attendez la fin d'une traduction en cours avant de fermer. Après une mise à jour, inutile de relancer : le
-        programme redémarre tout seul (jamais pendant une traduction) et cette page se met à jour d'elle-même.
+        Pour l'ouvrir, double-cliquez sur « Ouvrir le Traducteur » (ou sur l'icône « Traducteur d'articles ») dans le dossier du Traducteur : cette page s'affiche toute seule. Pour le fermer,
+        cliquez sur « Quitter » en haut à droite (impossible pendant une traduction : attendez qu'elle se termine). Fermer simplement cet
+        onglet ne ferme pas le programme : il continue de tourner en arrière-plan, et l'icône rouvre cette page. Après une mise à
+        jour, inutile de relancer : le programme redémarre tout seul (jamais pendant une traduction).
       </p>
     ),
   },

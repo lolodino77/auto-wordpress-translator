@@ -1,6 +1,7 @@
 """Tests hors ligne des règles éditoriales (spec/). Lancer : python -m unittest test_rules -v"""
 import json
 import unittest
+from unittest.mock import patch
 
 import rules
 import specs
@@ -1258,6 +1259,92 @@ class DraftStatesOnSite(unittest.TestCase):
         self.assertEqual(db["a"][0], "published")
 
 
+class FakePage:
+    """Page de LLM simulée : chaque regard (wait_for_timeout) avance d'une étape dans `steps`
+    (texte de la réponse, texte du bloc de code)."""
+
+    def __init__(self, steps):
+        self.steps, self.i = steps, -1
+
+    def wait_for_timeout(self, ms):
+        self.i = min(self.i + 1, len(self.steps) - 1)
+
+    def inner_text(self, sel):
+        return "page"
+
+    def locator(self, sel):
+        answer, code = self.steps[self.i]
+        text = code if sel == "pre code" else answer
+
+        class L:
+            last = None
+
+            def count(self):
+                return 1 if text else 0
+
+            def inner_text(self):
+                return text
+        loc = L()
+        loc.last = loc
+        return loc
+
+
+class LLMWaitAnswer(unittest.TestCase):
+    """Gemini répond parfois « Je suis une IA basée sur du texte. Cela dépasse mes capacités. » : ne pas attendre
+    10 minutes, mais réessayer aussitôt (nouvelle conversation), puis passer au moteur suivant."""
+
+    def wait(self, steps, timeout=5):
+        from llm_browser import Browser
+        return Browser._wait_answer(FakePage(steps), "pre code", "gemini", timeout, "message-content")
+
+    def test_complete_translation_is_returned(self):
+        self.assertIn("<!--FIN-->", self.wait([("", ""), ("…", "TITRE: x"), ("…", "TITRE: x\n<!--FIN-->")]))
+
+    def test_refusal_is_detected_quickly(self):
+        import llm_browser
+        with self.assertRaises(llm_browser.LLMRefused) as e:
+            self.wait([("Je suis une IA basée sur du texte. Cela dépasse mes capacités.", "")] * 3)
+        self.assertIn("dépasse mes capacités", str(e.exception))
+        self.assertTrue(issubclass(llm_browser.LLMRefused, ValueError))  # la pipeline réessaie puis change de moteur
+
+    def test_any_finished_answer_without_translation_is_refused(self):
+        import llm_browser
+        with patch.object(llm_browser, "STABLE_S", 10):
+            with self.assertRaises(llm_browser.LLMRefused):
+                self.wait([("Voici quelques idées sur ce sujet…", "")] * 5)
+
+    def test_translation_being_written_is_not_mistaken_for_a_refusal(self):
+        import llm_browser
+        steps = [("Je ne peux pas…", "TITRE: x")] * 4 + [("…", "TITRE: x\n<!--FIN-->")]
+        with patch.object(llm_browser, "STABLE_S", 5):
+            self.assertIn("<!--FIN-->", self.wait(steps))
+
+
+class BestGeminiModel(unittest.TestCase):
+    """Avant chaque article : meilleur mode accessible (un mode payant refusé est sauté), réflexion la plus élevée."""
+
+    def test_menu_seen_on_a_free_account(self):
+        from llm_browser import GEMINI_MODES, GEMINI_THINKING, pick
+        modes = ["Auto S'adapte à vos besoins", "Code et analyse 4 Argon"]
+        self.assertEqual(pick(modes, GEMINI_MODES), 1)  # Argon d'abord…
+        self.assertEqual(pick(modes, GEMINI_MODES, {"Code et analyse 4 Argon"}), 0)  # …payant : Auto
+        thinking = ["Bas Rapide et efficace", "Moyen Équilibré", "Élevé Très poussé"]
+        self.assertEqual(pick(thinking, GEMINI_THINKING), 2)
+        self.assertEqual(pick(["Bas Rapide et efficace", "Moyen Équilibré"], GEMINI_THINKING), 1)
+
+    def test_pro_preferred_when_offered(self):
+        from llm_browser import GEMINI_MODES, pick
+        self.assertEqual(pick(["Rapide", "Raisonnement", "Pro 3.5"], GEMINI_MODES), 2)
+        self.assertIsNone(pick(["Rapide", "Raisonnement"], GEMINI_MODES))  # inconnu : on garde le modèle actuel
+        self.assertEqual(pick(["Auto", "Pro"], ["Auto"]), 0)  # ordre réglable dans config.toml
+
+    def test_settings_from_config(self):
+        from llm_browser import Browser
+        b = Browser("profil", prefs={"gemini_modes": ["Auto"], "gemini_thinking": ["Moyen"]})
+        self.assertEqual((b.gemini_modes, b.gemini_thinking), (["Auto"], ["Moyen"]))
+        self.assertTrue(Browser("profil", prefs={}).gemini_modes)  # défauts
+
+
 class FakeBrowser:
     """Rejoue des réponses de LLM préparées ; lève LLMUnavailable pour un élément None."""
     def __init__(self, answers):
@@ -1265,11 +1352,13 @@ class FakeBrowser:
         self.calls = []
 
     def translate(self, engine, prompt, timeout_s=600):
-        from llm_browser import LLMUnavailable
+        from llm_browser import LLMRefused, LLMUnavailable
         self.calls.append(engine)
         a = self.answers.pop(0)
         if a is None:
             raise LLMUnavailable("hors service")
+        if a == "REFUS":
+            raise LLMRefused(f"{engine} a répondu sans traduire : « Je suis une IA basée sur du texte. »")
         return a
 
 
@@ -1310,6 +1399,19 @@ class PipelineGate(unittest.TestCase):
         self.assertEqual(b.calls, ["gemini", "gemini"])
         self.assertNotIn("[[", res.html)
         self.assertEqual(res.engine, "gemini")
+
+    def test_refusal_is_retried_in_a_new_chat_then_next_engine(self):
+        from pipeline import translate_article
+        b = FakeBrowser(["REFUS", raw(GOOD)])  # 2e essai Gemini (nouvelle conversation) : réussi
+        self.assertEqual((b.calls, translate_article(self.art(), self.CFG, b).engine), (["gemini", "gemini"], "gemini"))
+        b = FakeBrowser(["REFUS", "REFUS", raw(GOOD)])  # Gemini refuse deux fois : ChatGPT prend le relais
+        self.assertEqual((b.calls, translate_article(self.art(), self.CFG, b).engine), (["gemini", "gemini", "gpt"], "gpt"))
+
+    def test_refusal_everywhere_gives_a_clear_error(self):
+        from pipeline import translate_article
+        with self.assertRaises(RuntimeError) as e:
+            translate_article(self.art(), self.CFG, FakeBrowser(["REFUS"] * 4))
+        self.assertIn("sans traduire", str(e.exception))
 
     def test_fallback_to_second_engine_when_first_unavailable(self):
         from pipeline import translate_article

@@ -231,3 +231,8 @@ state-*.db
 # Interface web
 frontend/node_modules/
 input/corbeille/
+
+# Paquets fabriques pour les coequipiers (packaging/build_package.py)
+dist/
+traducteur*.log
+gemini_session.json

@@ -34,6 +34,8 @@ export interface Status {
   restart_needed?: boolean;
   /** Version de l'interface construite : quand elle change, la page se recharge. */
   ui_version?: string;
+  /** Gemini connecté à un compte Google ? (null : jamais vérifié) */
+  gemini_logged_in?: boolean | null;
   /** Dernière erreur en vérifiant l'état des brouillons dans WordPress ("" si tout va bien). */
   drafts_check_error?: string;
 }
@@ -119,6 +121,13 @@ export interface AddUrlsResult {
   already_done: { url: string; draft_url: string }[];
 }
 
+export interface GeminiStatus {
+  logged_in: boolean | null;
+  checked: string | null;
+  window_open: boolean;
+  error: string;
+}
+
 export class ApiError extends Error {
   offline: boolean;
   constructor(message: string, offline = false) {
@@ -141,7 +150,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     r = await fetch("/api" + path, { method, headers, body: payload });
   } catch {
     throw new ApiError(
-      "Le programme de traduction ne répond pas. Il a peut-être été fermé : relancez-le (double-clic sur « Lancer le traducteur »).",
+      "Le programme de traduction ne répond pas. Il a peut-être été fermé : pour le relancer, double-cliquez sur « Ouvrir le Traducteur » (ou sur l'icône « Traducteur d'articles ») dans le dossier du Traducteur.",
       true,
     );
   }
@@ -181,6 +190,10 @@ export const api = {
   settings: () => call<Settings>("GET", "/settings"),
   saveSettings: (s: Partial<Settings>) => call<Settings>("PUT", "/settings", s),
   account: () => call<Account>("GET", "/account"),
+  gemini: () => call<GeminiStatus>("GET", "/gemini"),
+  geminiLogin: () => call<GeminiStatus>("POST", "/gemini/login"),
+  geminiClose: () => call<{ ok: boolean }>("POST", "/gemini/close"),
+  quit: () => call<{ ok: boolean }>("POST", "/quit"),
   logout: () => call<{ ok: boolean }>("POST", "/account/logout"),
   saveAccount: (username: string, app_password: string) => call<Account>("POST", "/account", { username, app_password }),
 };

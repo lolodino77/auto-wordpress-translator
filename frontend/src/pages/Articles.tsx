@@ -149,6 +149,9 @@ export default function Articles() {
   return (
     <>
       <h1 className="page-title">Liste des articles à traduire</h1>
+      <Link to="/ajouter" className="page-title-action">
+        Ajouter des articles
+      </Link>
       {pending > 0 && !running && (
         <div className="notice notice-info" style={{ marginTop: 12 }}>
           <p>
@@ -224,7 +227,7 @@ export default function Articles() {
           ) : items.length === 0 ? (
             <tr className="empty">
               <td colSpan={5}>
-                Aucun article dans la liste pour l'instant.
+                Aucun article dans la liste pour l'instant. <Link to="/ajouter">Ajouter des articles</Link>
               </td>
             </tr>
           ) : shown.length === 0 ? (

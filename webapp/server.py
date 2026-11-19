@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from webapp.gemini_login import GeminiLogin
 from webapp.runner import Item, RunManager, real_execute
 from webapp.store import Store, StoreError
 
@@ -195,12 +196,15 @@ def create_app(root: Path, runs: RunManager | None = None,
                account: Callable[[Path, dict], dict] = default_account,
                save_credentials: Callable[..., dict] = default_save_credentials,
                reconcile: Callable[[Path, dict], None] = default_reconcile,
-               draft_states: Callable[[Path, dict, list[int]], dict[int, str]] = default_draft_states) -> FastAPI:
+               draft_states: Callable[[Path, dict, list[int]], dict[int, str]] = default_draft_states,
+               quit_callback: Callable[[], None] | None = None,
+               gemini: GeminiLogin | None = None) -> FastAPI:
     root = Path(root).resolve()
 
     started_stamp = code_stamp(root)
     store = Store(root)
     runs = runs or RunManager(real_execute)
+    gemini = gemini or GeminiLogin(root)
     app = FastAPI(title="Traducteur WordPress", docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
@@ -277,6 +281,11 @@ def create_app(root: Path, runs: RunManager | None = None,
                     it["status"] = "running" if active[it["key"]].status == "running" else "queued"
         return items
 
+    # --- identité : quel Traducteur occupe ce port ? (lanceur et installateur) ----------------------------------
+    @app.get("/api/identity")
+    def identity():
+        return {"app": "traducteur-wordpress", "root": str(root), "running": runs.running}
+
     # --- état général -------------------------------------------------------------------------------------
     @app.get("/api/status")
     def status():
@@ -301,6 +310,7 @@ def create_app(root: Path, runs: RunManager | None = None,
             "restart_needed": code_stamp(root) > started_stamp + 1,  # redémarrage automatique en attente
             "ui_version": ui_version(),
             "drafts_check_error": sync_error[0],
+            "gemini_logged_in": gemini.status().get("logged_in"),  # None : jamais vérifié
         }
 
     # --- articles -----------------------------------------------------------------------------------------
@@ -353,6 +363,8 @@ def create_app(root: Path, runs: RunManager | None = None,
         if body.mode not in ("brouillon", "apercu"):
             raise StoreError("Mode inconnu.")
         c = cfg()
+        if gemini.window_open:
+            raise StoreError("Fermez d'abord la fenêtre de connexion à Gemini (bouton « C'est fait » dans Réglages).")
         if body.mode == "brouillon":
             wp = c["wordpress"]
             needed = "wp_credentials.json" if wp.get("mode") == "selfhosted" else "wp_token.json"
@@ -448,6 +460,36 @@ def create_app(root: Path, runs: RunManager | None = None,
         if not body.username.strip() or not body.app_password.strip():
             raise StoreError("Indiquez le nom d'utilisateur et le mot de passe d'application.")
         return save_credentials(root, c, body.username.strip(), body.app_password.strip())
+
+    # --- connexion facultative à Gemini (fortement conseillée : meilleurs modèles) --------------------------------
+    @app.get("/api/gemini")
+    def gemini_status():
+        return gemini.status()
+
+    @app.post("/api/gemini/login")
+    def gemini_login():
+        if runs.running:
+            raise StoreError("Une traduction est en cours : attendez sa fin pour vous connecter à Gemini.")
+        try:
+            gemini.open(cfg()["llm"]["profile_dir"])
+        except RuntimeError as e:
+            raise StoreError(str(e))
+        return gemini.status()
+
+    @app.post("/api/gemini/close")
+    def gemini_close():
+        gemini.close()
+        return {"ok": True}
+
+    @app.post("/api/quit")
+    def quit_program():
+        """Bouton « Quitter » : arrête le programme (jamais pendant une traduction)."""
+        if quit_callback is None:
+            raise StoreError("Ce programme ne peut pas être arrêté depuis l'interface.")
+        if runs.running:
+            raise StoreError("Une traduction est en cours : attendez sa fin (ou arrêtez-la) avant de quitter.")
+        threading.Timer(0.5, quit_callback).start()  # laisse partir la réponse avant l'arrêt
+        return {"ok": True}
 
     @app.post("/api/account/logout")
     def logout():

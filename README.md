@@ -19,6 +19,20 @@ vers le français par Gemini (ou ChatGPT en secours) dans un navigateur, appliqu
 
 ## 1. Installation
 
+### Chez un coéquipier (Windows) : un double-clic
+
+Fabriquer le paquet : `python packaging/build_package.py windows` crée `dist/TraducteurWordPress-Windows.zip`.
+**Avant**, reconstruire l'interface (`cd frontend; npm run build`) et faire `git add` des fichiers nouveaux ou modifiés,
+en particulier le nouveau `webapp/static/assets/index-….js` : sinon il n'est pas embarqué et l'interface s'ouvre blanche.
+Procédure détaillée : [packaging/README.md](packaging/README.md#fabriquer-le-paquet-windows).
+Version **portable** : le coéquipier l'extrait où il veut (clic droit > « Extraire tout… ») et double-clique sur **« Ouvrir le Traducteur »** :
+la première fois, Python, les bibliothèques et le navigateur se préparent **dans ce dossier** (sans Anaconda ni droits
+d'administrateur, rien d'écrit ailleurs), puis une icône « Traducteur d'articles » apparaît à côté. Désinstaller = supprimer
+le dossier. Mise à jour : extraire le nouveau `.zip` au même endroit (les données sont conservées). Détails, architecture
+Windows / Mac / Linux et tests : [packaging/README.md](packaging/README.md). Mac et Linux : architecture prête, lanceurs à venir.
+
+### Développement (ce dépôt)
+
 Prérequis : Anaconda (ou Miniconda) sous Windows, et un navigateur.
 
 ```bash
@@ -30,8 +44,11 @@ conda activate auto-wordpress-translator
 trafilatura, playwright, requests, truststore, pypdf, et fastapi, uvicorn, python-multipart pour l'interface) et télécharge le
 navigateur Chromium de Playwright.
 
-Si Gemini ou ChatGPT demandent une connexion, `python agent.py --login` ouvre les deux sites : connectez-vous à la main
-dans la fenêtre. Gemini a répondu sans connexion lors de nos essais ; ChatGPT, de façon moins fiable.
+Le navigateur utilisé est **Google Chrome** s'il est installé (sinon le Chromium de Playwright). Se connecter à un compte
+Google dans Gemini est fortement conseillé (meilleurs modèles) : interface, Réglages > « Se connecter à Gemini ». Cette
+fenêtre est un Chrome normal, non piloté, car Google refuse la connexion dans un navigateur piloté (« Ce navigateur ou cette
+application ne sont peut-être pas sécurisés ») et le Chromium de Playwright ne s'y prête pas : Chrome est donc nécessaire
+pour cette étape. La connexion est ensuite vérifiée en lisant les noms des cookies du profil.
 
 ## 2. Configuration
 
@@ -70,8 +87,10 @@ Ne partagez jamais `wp_credentials.json` ni `wp_token.json` (ils sont exclus de 
 
 ### Interface graphique (le plus simple)
 
-Double-cliquez sur **`Lancer le traducteur.bat`** (Windows), **`Lancer le traducteur.command`** (Mac) ou
-**`lancer-le-traducteur.sh`** (Linux). Une fenêtre noire s'ouvre (la laisser ouverte : la fermer arrête le programme), puis
+Version portable (voir §1) : double-cliquez sur **« Ouvrir le Traducteur »** ou sur l'icône **« Traducteur d'articles »** du dossier (Windows) : aucune fenêtre
+noire, le programme tourne en arrière-plan (journal : `traducteur.log`) et s'arrête avec le bouton **Quitter** de l'interface. En
+développement : **`Lancer le traducteur.bat`** (Windows), **`Lancer le traducteur.command`** (Mac) ou **`lancer-le-traducteur.sh`**
+(Linux) ouvrent une fenêtre noire à laisser ouverte (la fermer arrête le programme), puis
 l'interface s'affiche dans le navigateur, à l'adresse `http://127.0.0.1:8710`. Équivalent en ligne de commande :
 
 ```bash
@@ -178,7 +197,10 @@ fichier .md ─► extract.py ─┘       │                (Gemini/ChatGPT)  
    « articles liés » sont retirées ; le suffixe « - Nom du site » est enlevé du titre.
 2. **Prompt** (`pipeline.py`, `specs.py`) : l'article, le texte des PDF de `spec/` et les consignes sont envoyés au LLM.
 3. **Traduction** (`llm_browser.py`) : Gemini, puis ChatGPT en secours. La réponse (titre, étiquettes, identifiant, HTML) est
-   relue ; une réponse non traduite ou mal formée est refusée et le moteur suivant est essayé.
+   relue ; une réponse non traduite ou mal formée est refusée et le moteur suivant est essayé. Quand le LLM répond sans
+   traduire (« Je suis une IA basée sur du texte. Cela dépasse mes capacités. », ou toute réponse terminée sans le bloc de
+   traduction), c'est détecté en quelques secondes (90 s au plus) au lieu d'attendre 10 minutes : nouvel essai dans une
+   nouvelle conversation, puis ChatGPT.
 4. **Règles éditoriales** (`rules.py`), appliquées de façon déterministe : titres en H3/H4, `XX<sup>e</sup>`, guillemets « »
    avec espaces insécables, références bibliques « Livre Chapitre,Verset » (noms complets, abréviations de la Bible de Jérusalem
    en note ou en liste, fichier `bible_abbreviations.toml`), notes de bas de page en `[[…]]`, introduction du traducteur en italique
@@ -232,7 +254,7 @@ Pour un site WordPress.com, les équivalents sont dans `checks/wpcom/`.
 ## 7. Tests
 
 ```bash
-python -m unittest test_rules test_webapp
+python -m unittest test_rules test_webapp test_packaging
 ```
 
 Environ 160 tests vérifient le code avec un faux réseau : `test_rules` (règles, notes, slug, CSV, fichiers `.md`, module WordPress) et

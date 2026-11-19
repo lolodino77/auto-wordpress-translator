@@ -8,6 +8,7 @@ dependencies:
       - trafilatura
       - playwright
       - requests
+      - pysocks  # évite un avertissement de trafilatura au démarrage
       - truststore
       - pypdf
       # interface web locale (python -m webapp)
