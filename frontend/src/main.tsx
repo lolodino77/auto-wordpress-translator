@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 import "./wp.css";
@@ -13,15 +13,42 @@ import Help from "./pages/Help";
 import AddArticles from "./pages/AddArticles";
 import Login from "./pages/Login";
 import Closed from "./pages/Closed";
+import GeminiGate from "./pages/GeminiGate";
 import { useApp } from "./context";
 import type { ReactNode } from "react";
 
-/** Portail : tant que le compte WordPress n'est pas connecté et vérifié, seule la page de connexion est accessible. */
+/** Le rappel Gemini n'est montré qu'une fois par ouverture du programme (l'onglet) : un rechargement de page ne le repose pas. */
+const GEMINI_SEEN = "gemini_gate_seen";
+function geminiSeen(): boolean {
+  try {
+    return sessionStorage.getItem(GEMINI_SEEN) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Portail : tant que le compte WordPress n'est pas connecté et vérifié, seule la page de connexion est accessible.
+ *  Ensuite, rappel (facultatif) de se connecter à Gemini à chaque ouverture du programme. */
 function Gate({ children }: { children: ReactNode }) {
   const { account, accountReady, closed } = useApp();
+  const [geminiDone, setGeminiDone] = useState(geminiSeen);
   if (closed) return <Closed />;
   if (!accountReady) return <div className="login-splash" aria-busy="true" />;
   if (!account?.connected) return <Login />;
+  if (!geminiDone) {
+    return (
+      <GeminiGate
+        onDone={() => {
+          try {
+            sessionStorage.setItem(GEMINI_SEEN, "1");
+          } catch {
+            /* stockage indisponible : le rappel reviendra au prochain chargement */
+          }
+          setGeminiDone(true);
+        }}
+      />
+    );
+  }
   return <>{children}</>;
 }
 

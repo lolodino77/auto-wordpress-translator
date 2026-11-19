@@ -463,7 +463,13 @@ def create_app(root: Path, runs: RunManager | None = None,
 
     # --- connexion facultative à Gemini (fortement conseillée : meilleurs modèles) --------------------------------
     @app.get("/api/gemini")
-    def gemini_status():
+    def gemini_status(verify: bool = False):
+        if verify and not gemini.window_open and not runs.running:  # relit les cookies du profil (connexion expirée ?)
+            try:
+                from webapp.gemini_login import cookie_names, is_logged_in, save_status
+                save_status(root, is_logged_in([{"name": n} for n in cookie_names(cfg()["llm"]["profile_dir"])]))
+            except OSError:
+                pass  # profil illisible (navigateur ouvert) : on garde le dernier état connu
         return gemini.status()
 
     @app.post("/api/gemini/login")

@@ -190,7 +190,7 @@ export const api = {
   settings: () => call<Settings>("GET", "/settings"),
   saveSettings: (s: Partial<Settings>) => call<Settings>("PUT", "/settings", s),
   account: () => call<Account>("GET", "/account"),
-  gemini: () => call<GeminiStatus>("GET", "/gemini"),
+  gemini: (verify = false) => call<GeminiStatus>("GET", verify ? "/gemini?verify=1" : "/gemini"),
   geminiLogin: () => call<GeminiStatus>("POST", "/gemini/login"),
   geminiClose: () => call<{ ok: boolean }>("POST", "/gemini/close"),
   quit: () => call<{ ok: boolean }>("POST", "/quit"),
