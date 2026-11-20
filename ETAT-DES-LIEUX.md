@@ -5,11 +5,11 @@
 | Version portable | Paquet | État |
 |---|---|---|
 | **Windows** | `dist/TraducteurWordPress-Windows.zip` | ✅ en service, **re-testée de bout en bout** après la réorganisation |
-| **Linux** | `dist/TraducteurWordPress-Linux.zip` | ✅ **nouvelle**, testée sur Ubuntu 24.04, Debian 12, Fedora 41 ; essais openSUSE et Arch à finir |
+| **Linux** | `dist/TraducteurWordPress-Linux.zip` | ✅ **nouvelle**, testée sur Ubuntu 24.04, Debian 12, Fedora 41, openSUSE Tumbleweed, Arch (dans Docker) ; reste l'essai sur un vrai bureau |
 | Mac | — | ⏳ à venir : architecture prête (`packaging/macos/README.md`), rien d'écrit |
 
-⚠️ **Rien n'est commité** : tout le travail ci-dessous est dans l'arbre de travail, et les nouveaux fichiers sont
-seulement ajoutés à l'index (`git add`, nécessaire pour qu'ils entrent dans les paquets).
+Le travail des deux versions est commité (commits `e878a0f` et `7a3ef05`). Depuis : lanceur Linux plus robuste aux
+téléchargements coupés (voir « Tests »), pas encore commité.
 
 ## Ce qui a été fait
 
@@ -73,24 +73,46 @@ propre à un système (`.bat`, `.sh`, PowerShell, `.desktop`, OneDrive, `sys.pla
 | Ubuntu 24.04 | ✅ message apt | ✅ message | ✅ | ✅ `/api/identity` répond | ✅ | ✅ |
 | Debian 12 | ✅ message apt | ✅ message | ✅ | ✅ | ✅ | ✅ |
 | Fedora 41 | ✅ message dnf | ✅ message | ✅ | ✅ | ✅ | ✅ |
-| openSUSE Tumbleweed | ✅ message zypper | ✅ message | ⏳ relancé (il manquait `libXfixes3` dans la liste de paquets *de l'essai*) | ⏳ | ⏳ | ⏳ |
-| Arch | ❌ pas testé : les miroirs Arch ne répondent pas depuis ce réseau (Avast inspecte le HTTPS) | | | | | |
+| openSUSE Tumbleweed | ✅ message zypper | ✅ message | ✅ | ✅ | ✅ | ✅ |
+| Arch | ✅ message pacman (`gcc-libs`, voir ci-dessous) | ✅ message | ✅ | ✅ | ✅ | ✅ |
 
-Remarque : dans Docker, il faut injecter le certificat racine d'Avast (`Avast Web/Mail Shield Root`) : propre à ce
-PC, pas un problème du paquet.
+Dans tous les essais du 20/11 (openSUSE, Arch) : « lancement réel » = `/api/identity` répond ; **bouton « Quitter »** :
+`POST /api/quit` arrête les 2 processus `webapp` en 1 s. L'essai précédent échouait parce qu'il n'envoyait pas l'en-tête
+**`X-AWT: 1`**, exigé par le serveur pour toute requête qui modifie quelque chose (l'interface l'envoie toujours) : sans
+lui, réponse « Requête refusée. » et rien ne s'arrête. Ce n'était donc pas un défaut du paquet. « Dossier déplacé » :
+vers `~/Mes documents/Essai d'articles/` (espaces et apostrophe) : préparation réparée, entrée du menu mise à jour,
+lancement depuis le nouveau dossier.
+
+Remarques :
+
+- Arch a scindé `gcc-libs` : `libatomic` y est maintenant un paquet à part, et `gcc-libs` un méta-paquet qui en dépend.
+  Le message `sudo pacman -S gcc-libs` reste juste (il réinstalle `libatomic` si elle manque) et marche aussi sur les
+  systèmes Arch/Manjaro plus anciens ; il est gardé tel quel.
+- Sur openSUSE, Arch (et Fedora), le téléchargement du navigateur affiche en anglais « BEWARE: your OS is not
+  officially supported by Playwright; downloading fallback build for ubuntu24.04-x64. » : message de Playwright, sans
+  conséquence (le navigateur fonctionne).
+- Pour les bibliothèques du navigateur, seul Debian/Ubuntu reçoit une commande toute faite ; ailleurs, le message
+  conseille d'installer Google Chrome (qui apporte tout ce qu'il faut).
+- **Correction du 20/11** : sur ce réseau, environ un téléchargement sur trois est coupé en route dans les conteneurs,
+  et `curl --retry` ne réessaie pas après une coupure. Le lanceur Linux réessaie maintenant 3 fois le téléchargement de
+  `uv` (« Téléchargement interrompu : nouvel essai... »), sauf s'il n'a aucun outil de téléchargement. Vérifié avec un
+  faux `curl` coupé deux fois, puis par un essai openSUSE complet avec le nouveau paquet.
+
+Particularités de ce PC (pas des problèmes du paquet) : Avast inspecte le HTTPS. Il faut injecter son certificat racine
+(`Avast Web/Mail Shield Root`, exporté du magasin Windows) dans les conteneurs, et Docker Desktop n'arrive pas à
+télécharger les images (coupures) : elles ont été téléchargées depuis Windows par un petit script qui reprend les
+coupures, puis chargées avec `docker load`. Les miroirs Arch sont lents : `pacman` relancé jusqu'à 6 fois.
 
 ## Reste à faire
 
-1. Finir les essais openSUSE (en cours) et Arch (essayer depuis un autre réseau ou un autre miroir).
-2. Vérifier le bouton **« Quitter »** sous Linux : dans l'essai, 2 processus restaient 3 s après `POST /api/quit`
-   (l'appel n'envoyait peut-être pas les bons en-têtes ; essai relancé avec `Content-Type` et 8 s d'attente).
-3. Essai sur un **vrai bureau Linux** (avec écran) : double-clic / « Exécuter comme un programme » sous GNOME,
+1. Essai sur un **vrai bureau Linux** (avec écran) : double-clic / « Exécuter comme un programme » sous GNOME,
    ouverture du terminal, entrée du menu, ouverture du navigateur, connexion à Gemini avec Chrome.
-4. Commiter (rien n'est commité), puis fabriquer les deux `.zip` avec les deux `Fabriquer le paquet *.bat`.
-5. Plus tard : version Mac (`packaging/macos/README.md`).
+2. Commiter la correction du lanceur, puis fabriquer les deux `.zip` avec les deux `Fabriquer le paquet *.bat`.
+3. Facultatif : masquer ou expliquer en français le message anglais « BEWARE… » de Playwright pendant la préparation.
+4. Plus tard : version Mac (`packaging/macos/README.md`).
 
-## Fichiers d'essai (sur le PC d'origine seulement, dossier temporaire)
+## Fichiers d'essai (dossier temporaire de la session, pas dans le dépôt)
 
-Le scénario Docker (`essai-linux.sh`, `lancer-essais.sh`) est dans le dossier temporaire de la session, pas dans le
-dépôt. Il se réécrit facilement : extraire le `.zip` en utilisateur normal, puis
+Le scénario Docker (`essai-linux.sh`, et `pull_image.py` pour télécharger les images depuis Windows) est dans le
+dossier temporaire de la session, pas dans le dépôt. Il se réécrit facilement : extraire le `.zip` en utilisateur normal, puis
 `TRADUCTEUR_SANS_LANCEMENT=1 TRADUCTEUR_AUTOMATIQUE=1 ./ouvrir-le-traducteur.sh`, avec les étapes du tableau ci-dessus.

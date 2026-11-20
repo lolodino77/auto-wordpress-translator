@@ -136,14 +136,24 @@ echo "    Gardez cette fenêtre ouverte jusqu'à la fin."
 echo "  =========================================================="
 
 # --- Outil « uv » (fournit Python sans rien installer sur l'ordinateur) --------------------------------------------
-telecharger() {  # $1 = adresse, $2 = fichier : curl, sinon wget, sinon Python du système
+telecharger() {  # $1 = adresse, $2 = fichier ; 3 essais : un antivirus ou un réseau instable coupe parfois en route
+  for essai in 1 2 3; do
+    telecharger_une_fois "$1" "$2"; r=$?
+    [ "$r" = 0 ] && return 0
+    [ "$r" = 100 ] && return 1  # aucun outil de téléchargement : inutile de réessayer
+    [ "$essai" = 3 ] || { echo "  Téléchargement interrompu : nouvel essai..."; sleep 3; }
+  done
+  return 1
+}
+
+telecharger_une_fois() {  # curl, sinon wget, sinon Python du système
   if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 -o "$2" "$1"
   elif command -v wget >/dev/null 2>&1; then wget -q -O "$2" "$1"
   elif command -v python3 >/dev/null 2>&1; then
     python3 -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "$1" "$2"
   else
     echo "  Ni curl, ni wget, ni python3 : impossible de télécharger. Installez curl, puis relancez."
-    return 1
+    return 100  # (code propre : curl, wget et python ne l’utilisent pas)
   fi
 }
 

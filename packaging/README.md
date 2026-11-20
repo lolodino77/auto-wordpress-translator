@@ -147,6 +147,11 @@ puis `git add -A webapp packaging frontend *.py config.toml README.md`, puis
   TRADUCTEUR_SANS_LANCEMENT=1 TRADUCTEUR_AUTOMATIQUE=1 ./ouvrir-le-traducteur.sh
   ```
 
+  Puis lancement réel (`TRADUCTEUR_AUTOMATIQUE=1 ./ouvrir-le-traducteur.sh`, `curl http://127.0.0.1:8710/api/identity`)
+  et bouton « Quitter » : `curl -X POST -H 'X-AWT: 1' http://127.0.0.1:8710/api/quit`. L'en-tête `X-AWT: 1` est
+  obligatoire (le serveur refuse toute requête qui modifie quelque chose sans lui, comme l'interface l'envoie).
+  Derrière un antivirus ou un proxy qui inspecte le HTTPS, injecter son certificat racine dans le conteneur.
+
 ## Google Chrome et connexion à Gemini
 
 La connexion facultative (mais fortement conseillée) à un compte Google dans Gemini (Réglages > « Se connecter à
