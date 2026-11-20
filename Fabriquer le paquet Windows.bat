@@ -50,6 +50,24 @@ echo  [2/3] Prise en compte des fichiers nouveaux ou modifies...
 git add -A webapp packaging frontend *.py config.toml README.md
 if errorlevel 1 goto :echec
 
+rem --- Ancienne copie dezippee (dossier d'essai) : supprimee de force, pour ne jamais tester une vieille version ----
+if not exist "dist\TraducteurWordPress-Windows\" goto :apres_suppression
+echo.
+echo  Suppression de l'ancienne copie dezippee : dist\TraducteurWordPress-Windows
+rem Le Traducteur (ou son navigateur) de cette copie est peut-etre encore ouvert : on l'arrete d'abord, sinon Windows
+rem refuse de supprimer ses fichiers.
+powershell -NoProfile -Command "$d=(Resolve-Path 'dist\TraducteurWordPress-Windows').Path; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and (($_.ExecutablePath -and $_.ExecutablePath.StartsWith($d,[StringComparison]::OrdinalIgnoreCase)) -or ($_.CommandLine -and $_.CommandLine.IndexOf($d,[StringComparison]::OrdinalIgnoreCase) -ge 0)) } | ForEach-Object { Write-Host ('  Arret de ' + $_.Name); Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+ping -n 3 127.0.0.1 >nul
+rmdir /s /q "dist\TraducteurWordPress-Windows" 2>nul
+if not exist "dist\TraducteurWordPress-Windows\" goto :apres_suppression
+ping -n 4 127.0.0.1 >nul
+rmdir /s /q "dist\TraducteurWordPress-Windows"
+if exist "dist\TraducteurWordPress-Windows\" (
+  echo  Impossible de la supprimer : fermez les fenetres qui utilisent ce dossier ^(explorateur, terminal^), puis reessayez.
+  goto :echec
+)
+:apres_suppression
+
 rem --- 3) Paquet --------------------------------------------------------------------------------------------------
 echo.
 echo  [3/3] Fabrication du paquet...

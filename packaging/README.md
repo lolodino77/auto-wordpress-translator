@@ -58,7 +58,9 @@ ne contient jamais `input/` : la liste d'articles du développeur ne part pas ch
 
 1. reconstruction de l'interface (`npm run build`, après `npm ci` la toute première fois) ;
 2. `git add` des fichiers nouveaux ou modifiés du programme (sans commiter) ;
-3. fabrication de `dist/TraducteurWordPress-Windows.zip` (environ 1,3 Mo), puis ouverture du dossier `dist`.
+3. suppression forcée de l'ancienne copie dézippée `dist/TraducteurWordPress-Windows/` (le dossier d'essai : le Traducteur qui
+   tourne dedans est arrêté, et ses données, identifiants compris, sont perdues), puis fabrication de `dist/TraducteurWordPress-Windows.zip` (environ 1,3 Mo) et
+   ouverture du dossier `dist`.
 
 Il faut seulement Git, Node.js et l'environnement conda du projet (`setup_env.ps1`). En cas d'erreur, la fenêtre reste
 ouverte avec le message. Ensuite :
