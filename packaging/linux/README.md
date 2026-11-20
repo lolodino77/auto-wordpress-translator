@@ -1,16 +1,14 @@
-# Linux : à venir
+# Linux : version portable
 
-L'architecture est prête : `packaging/common/prepare.py` fait déjà tout le travail commun de la version portable
-(Python via `uv`, bibliothèques, navigateur, vérification, conservation des données, réparation si le dossier est
-déplacé). Il reste à écrire et **tester sur un vrai Linux** :
+Tout ce qui est propre à Linux est dans ce dossier, et seulement ici (voir `packaging/README.md`, « Architecture ») :
 
-1. `ouvrir-le-traducteur.sh`, équivalent de `packaging/windows/Ouvrir le Traducteur.bat` : vérification rapide
-   (`prepare.py --check`), sinon téléchargement de `uv` pour Linux (`uv-x86_64-unknown-linux-gnu.tar.gz` ou
-   `uv-aarch64-unknown-linux-gnu.tar.gz`) dans `programme/runtime/`, puis
-   `uv run --no-project --python 3.12 programme/packaging/common/prepare.py --root programme --uv …`.
-2. Chromium a besoin de bibliothèques du système : `python -m playwright install --with-deps chromium` les installe,
-   mais demande le mot de passe administrateur (`sudo`). À prévoir dans la notice.
-3. Dans `prepare.py` : `create_icon` pour Linux (un fichier `.desktop` avec `packaging/assets/traducteur.png`), puis
-   ajouter `"linux"` à `manifest.SUPPORTED`.
-4. Dans `build_package.py` : une entrée `"linux"` dans `BOOTSTRAP`, en gardant les fins de ligne Unix et le droit
-   d'exécution du `.sh` dans le `.zip`.
+- `system.py` : `class Linux(System)` : avertissements d'emplacement (disque FAT/exFAT/NTFS, option `noexec`, pas
+  d'écran graphique), bibliothèques du navigateur manquantes (`ldd`), icône (`Traducteur d'articles.desktop` dans le
+  dossier + entrée `traducteur-articles.desktop` du menu des applications).
+- `ouvrir-le-traducteur.sh` : le lanceur, en `sh` POSIX (aucune dépendance à bash), mis à la racine du `.zip` avec le
+  droit d'exécution. Vérification rapide, sinon téléchargement de `uv` (`uv-<x86_64|aarch64>-unknown-linux-gnu`) et
+  préparation dans un terminal du bureau, puis ouverture en arrière-plan. `--desinstaller` retire l'entrée du menu.
+- `LISEZ-MOI.txt` : la notice des coéquipiers.
+
+Fabriquer le paquet : `Fabriquer le paquet Linux.bat` (sous Windows) ou `python packaging/build_package.py linux`.
+Tester : `packaging/README.md`, partie « Tester ».

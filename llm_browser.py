@@ -83,7 +83,8 @@ def installed_chrome() -> str | None:
         candidates = [Path(p) / "Google Chrome.app" / "Contents" / "MacOS" / "Google Chrome"
                       for p in ("/Applications", Path.home() / "Applications")]
     else:
-        candidates = [Path(p) for p in (shutil.which("google-chrome"), shutil.which("google-chrome-stable")) if p]
+        candidates = [Path(p) for p in (shutil.which("google-chrome"), shutil.which("google-chrome-stable"),
+                                        "/opt/google/chrome/chrome") if p]
     return next((str(c) for c in candidates if c.is_file()), None)
 
 

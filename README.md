@@ -19,17 +19,19 @@ vers le français par Gemini (ou ChatGPT en secours) dans un navigateur, appliqu
 
 ## 1. Installation
 
-### Chez un coéquipier (Windows) : un double-clic
+### Chez un coéquipier (Windows ou Linux) : un double-clic
 
-Fabriquer le paquet : `python packaging/build_package.py windows` crée `dist/TraducteurWordPress-Windows.zip`.
+Fabriquer le paquet : double-clic sur `Fabriquer le paquet Windows.bat` ou `Fabriquer le paquet Linux.bat` (ou
+`python packaging/build_package.py windows|linux`) crée `dist/TraducteurWordPress-Windows.zip` ou `-Linux.zip`.
 **Avant**, reconstruire l'interface (`cd frontend; npm run build`) et faire `git add` des fichiers nouveaux ou modifiés,
 en particulier le nouveau `webapp/static/assets/index-….js` : sinon il n'est pas embarqué et l'interface s'ouvre blanche.
-Procédure détaillée : [packaging/README.md](packaging/README.md#fabriquer-le-paquet-windows).
-Version **portable** : le coéquipier l'extrait où il veut (clic droit > « Extraire tout… ») et double-clique sur **« Ouvrir le Traducteur »** :
+Procédure détaillée : [packaging/README.md](packaging/README.md#fabriquer-les-paquets).
+Version **portable** : le coéquipier l'extrait où il veut (clic droit > « Extraire tout… ») et lance **« Ouvrir le Traducteur »** (Windows) ou **`ouvrir-le-traducteur.sh`** (Linux) :
 la première fois, Python, les bibliothèques et le navigateur se préparent **dans ce dossier** (sans Anaconda ni droits
-d'administrateur, rien d'écrit ailleurs), puis une icône « Traducteur d'articles » apparaît à côté. Désinstaller = supprimer
+d'administrateur, rien d'écrit ailleurs), puis une icône « Traducteur d'articles » apparaît à côté (et, sous Linux, dans le menu des applications). Désinstaller = supprimer
 le dossier. Mise à jour : extraire le nouveau `.zip` au même endroit (les données sont conservées). Détails, architecture
-Windows / Mac / Linux et tests : [packaging/README.md](packaging/README.md). Mac et Linux : architecture prête, lanceurs à venir.
+(un dossier par système, `packaging/windows/` et `packaging/linux/`) et tests : [packaging/README.md](packaging/README.md).
+Mac : architecture prête, lanceur à venir.
 
 ### Développement (ce dépôt)
 
@@ -87,7 +89,7 @@ Ne partagez jamais `wp_credentials.json` ni `wp_token.json` (ils sont exclus de 
 
 ### Interface graphique (le plus simple)
 
-Version portable (voir §1) : double-cliquez sur **« Ouvrir le Traducteur »** ou sur l'icône **« Traducteur d'articles »** du dossier (Windows) : aucune fenêtre
+Version portable (voir §1) : double-cliquez sur **« Ouvrir le Traducteur »** ou sur l'icône **« Traducteur d'articles »** (Windows ; sous Linux : `ouvrir-le-traducteur.sh` ou le menu des applications) : aucune fenêtre
 noire, le programme tourne en arrière-plan (journal : `traducteur.log`) et s'arrête avec le bouton **Quitter** de l'interface. En
 développement : **`Lancer le traducteur.bat`** (Windows), **`Lancer le traducteur.command`** (Mac) ou **`lancer-le-traducteur.sh`**
 (Linux) ouvrent une fenêtre noire à laisser ouverte (la fermer arrête le programme), puis
@@ -299,7 +301,9 @@ réglages). Ils ne contactent jamais WordPress ni les LLM et ne prouvent donc ri
 | `webapp/` | interface locale : serveur FastAPI/uvicorn (`server.py`), liste et résultats (`store.py`), traductions en arrière-plan (`runner.py`), interface construite (`static/`) |
 | `frontend/` | code de l'interface (React + TypeScript + Vite) |
 | `Lancer le traducteur.*`, `lancer-le-traducteur.sh` | lanceurs à double-clic (Windows, Mac, Linux) |
-| `test_rules.py`, `test_webapp.py` | tests automatiques |
+| `packaging/` | version portable : tronc commun (`common/`) et un dossier par système (`windows/`, `linux/`) |
+| `Fabriquer le paquet *.bat` | fabrication des paquets portables (double-clic) |
+| `test_rules.py`, `test_webapp.py`, `test_packaging.py` | tests automatiques |
 | `spec/` | règles éditoriales de la revue (PDF) |
 | `input/` | CSV et fichiers `.md` à traduire |
 

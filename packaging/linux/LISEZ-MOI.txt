@@ -1,0 +1,56 @@
+TRADUCTEUR D'ARTICLES - VERSION PORTABLE POUR LINUX
+===================================================
+
+Il vous faut : une distribution Linux de bureau récente (Ubuntu, Debian, Linux Mint, Fedora, openSUSE, Arch,
+Manjaro, Pop!_OS, Zorin, elementary...), un PC 64 bits, une connexion Internet et environ 1 Go de place libre.
+Rien ne s'installe ailleurs sur l'ordinateur : tout reste dans le dossier que vous allez extraire (seule une
+entrée « Traducteur d'articles » est ajoutée au menu des applications). Aucun mot de passe n'est demandé.
+
+PREMIÈRE FOIS
+-------------
+1. Clic droit sur le fichier .zip reçu, puis « Extraire ici ». Choisissez un emplacement simple dans votre dossier
+   personnel, par exemple ~/Traducteur. (Évitez une clé USB ou une partition Windows : Python ne s'y installe pas.)
+2. Dans le dossier extrait, lancez « ouvrir-le-traducteur.sh » :
+   - Ubuntu, Fedora et autres bureaux GNOME : clic droit sur le fichier > « Exécuter comme un programme » ;
+   - KDE, Xfce, Cinnamon, MATE : double-clic, puis « Exécuter » (ou « Lancer ») si une question s'affiche ;
+   - ou, dans un terminal ouvert dans ce dossier :   sh ouvrir-le-traducteur.sh
+   Si le fichier s'ouvre dans un éditeur de texte au lieu de se lancer, utilisez la commande du terminal ci-dessus.
+3. Une fenêtre de terminal prépare le programme (Python, navigateur...). Comptez quelques minutes, une seule fois.
+   Ne la fermez pas. À la fin, le Traducteur s'ouvre dans votre navigateur.
+
+ENSUITE
+-------
+- Ouvrez « Traducteur d'articles » depuis le menu des applications (carré bleu avec « 文 » et « A »).
+  Le fichier « Traducteur d'articles.desktop » du dossier et « ouvrir-le-traducteur.sh » font la même chose.
+- Le Traducteur s'ouvre dans votre navigateur. Pour le fermer : bouton « Quitter », en haut à droite de la page.
+  (Fermer seulement l'onglet ne l'arrête pas : il continue discrètement, et l'icône rouvre la page.)
+- La première fois, connectez-vous avec votre second compte WordPress (rôle « Contributeur ») et son
+  « mot de passe d'application » : la page de connexion explique comment les obtenir, pas à pas.
+- FORTEMENT CONSEILLÉ, une seule fois : Réglages > « Se connecter à Gemini », avec votre compte Google (gratuit).
+  Sans compte, Gemini n'utilise que des modèles limités : traductions moins bonnes et refus plus fréquents.
+  Il faut Google Chrome installé sur l'ordinateur (gratuit : google.com/chrome, paquet .deb ou .rpm).
+
+SI LA PRÉPARATION SIGNALE DES « BIBLIOTHÈQUES DU SYSTÈME » MANQUANTES
+--------------------------------------------------------------------
+Le navigateur utilisé pour la traduction a besoin de quelques bibliothèques présentes sur presque tous les bureaux.
+S'il en manque, le plus simple est d'installer Google Chrome (voir ci-dessus) : il installe tout ce qu'il faut.
+Relancez ensuite « ouvrir-le-traducteur.sh ».
+
+DÉPLACER LE DOSSIER
+-------------------
+Possible à tout moment (Traducteur fermé). Ensuite, lancez « ouvrir-le-traducteur.sh » : il se répare tout seul
+en environ une minute, et l'entrée du menu des applications est mise à jour.
+
+METTRE À JOUR
+-------------
+Quand vous recevez une nouvelle version : fermez le Traducteur, puis extrayez le nouveau .zip AU MÊME ENDROIT que
+l'ancien et acceptez de remplacer les fichiers. Lancez ensuite « ouvrir-le-traducteur.sh ».
+Vos identifiants, votre liste d'articles et vos traductions sont conservés.
+
+DÉSINSTALLER
+------------
+Fermez le Traducteur (bouton « Quitter »). Dans un terminal ouvert dans ce dossier :
+    sh ouvrir-le-traducteur.sh --desinstaller
+(retire l'entrée du menu des applications), puis supprimez le dossier.
+Attention : vos identifiants, votre liste d'articles et vos traductions enregistrés dans ce dossier sont supprimés
+avec lui. Les brouillons déjà créés dans WordPress ne sont pas touchés.

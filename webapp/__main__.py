@@ -8,9 +8,9 @@ Python : dès qu'un fichier change (mise à jour, correction), il s'arrête prop
 nouvelle version, en 1 à 2 secondes. Jamais pendant une traduction : il attend la fin de l'article en cours. La page
 ouverte dans le navigateur se reconnecte et se recharge seule si l'interface a changé.
 
-Lancé par l'icône ou « Ouvrir le Traducteur » (pythonw.exe), le programme n'ouvre AUCUNE fenêtre noire : il tourne en arrière-plan, son
-journal va dans traducteur.log, et le bouton « Quitter » de l'interface l'arrête. En cas d'échec au démarrage, une boîte
-de message l'explique."""
+Lancé par l'icône ou le lanceur de la version portable (pythonw.exe sous Windows, TRADUCTEUR_ARRIERE_PLAN=1 sous Linux),
+le programme n'ouvre AUCUNE fenêtre noire : il tourne en arrière-plan, son journal va dans traducteur.log, et le bouton
+« Quitter » de l'interface l'arrête. En cas d'échec au démarrage, une boîte de message l'explique."""
 import argparse
 import json
 import os
@@ -33,8 +33,9 @@ TITLE = "Traducteur d'articles"
 
 
 def background_mode() -> bool:
-    """Vrai quand il n'y a pas de console (pythonw.exe : icône, « Ouvrir le Traducteur ») : plus de print possible."""
-    return sys.stdout is None or sys.stderr is None
+    """Vrai quand il n'y a pas de console où écrire : pythonw.exe (Windows), ou lanceur Linux qui démarre le programme
+    détaché du terminal (TRADUCTEUR_ARRIERE_PLAN=1)."""
+    return sys.stdout is None or sys.stderr is None or bool(os.environ.get("TRADUCTEUR_ARRIERE_PLAN"))
 
 
 def redirect_output_to_log() -> None:
@@ -50,7 +51,7 @@ def redirect_output_to_log() -> None:
 
 
 def show_message(text: str) -> None:
-    """Boîte de message (Windows) quand il n'y a pas de console où écrire l'erreur."""
+    """Boîte de message quand il n'y a pas de console où écrire l'erreur."""
     if sys.platform.startswith("win"):
         try:
             import ctypes
@@ -58,6 +59,17 @@ def show_message(text: str) -> None:
             ctypes.windll.user32.MessageBoxW(0, text, TITLE, 0x10)
         except Exception:
             pass
+        return
+    import shutil
+
+    for cmd in (["zenity", "--error", "--no-wrap", f"--title={TITLE}", f"--text={text}"],
+                ["kdialog", "--title", TITLE, "--error", text], ["notify-send", TITLE, text], ["xmessage", "-center", text]):
+        if shutil.which(cmd[0]):
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=600)
+                return
+            except (OSError, subprocess.SubprocessError):
+                continue
 
 
 def _port_busy(port: int) -> bool:
