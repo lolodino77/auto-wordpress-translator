@@ -1,0 +1,34 @@
+Prompt à coller dans Claude Code sur l'autre ordinateur, ouvert dans le dossier du projet auto-wordpress-translator.
+Avant : vérifier que le dossier contient bien ETAT-DES-LIEUX.md et packaging/linux/ (synchronisation OneDrive, ou
+git pull si le travail a été commité et poussé).
+------------------------------------------------------------------------------------------------------------------
+
+Je reprends un travail commencé sur un autre ordinateur : les versions portables du Traducteur (un .zip à extraire,
+un fichier à lancer, rien à installer). Lis d'abord ETAT-DES-LIEUX.md (à la racine), puis packaging/README.md : ils
+décrivent ce qui a été fait, l'architecture et ce qui reste.
+
+Contexte à respecter :
+- Deux versions portables : Windows (en service) et Linux (nouvelle). Le Mac viendra plus tard.
+- Architecture cloisonnée, à garder telle quelle : tout ce qui est propre à un système est dans
+  packaging/<système>/ (system.py avec une classe qui hérite de System, lanceur, LISEZ-MOI.txt). packaging/common/
+  et packaging/build_package.py ne doivent contenir AUCUN code propre à un système (le test
+  test_packaging.Systems.test_common_code_knows_no_particular_system le vérifie).
+- Le lanceur Linux (packaging/linux/ouvrir-le-traducteur.sh) est en sh POSIX, sans bash, et doit rester en fins de
+  ligne Unix.
+- Messages pour les utilisateurs : en français simple, pour des non-programmeurs.
+- Rien n'a été commité sur l'autre ordinateur. Ne commite et ne pousse pas sans me le demander.
+
+Ce que je te demande maintenant :
+1. Vérifier l'état : git status, puis lancer les tests avec l'environnement conda du projet
+   (python -m unittest test_packaging test_webapp). Ils doivent tous passer.
+2. Finir les essais réels du paquet Linux qui restent (section « Reste à faire » d'ETAT-DES-LIEUX.md) :
+   fabriquer le .zip (python packaging/build_package.py linux --out <dossier temporaire>), puis l'essayer dans Docker
+   sur openSUSE Tumbleweed et Arch en utilisateur normal (unzip, puis
+   TRADUCTEUR_SANS_LANCEMENT=1 TRADUCTEUR_AUTOMATIQUE=1 ./ouvrir-le-traducteur.sh), avec les mêmes étapes que le
+   tableau de l'état des lieux : sans libatomic, sans les bibliothèques du navigateur, préparation complète, lancement
+   réel (/api/identity doit répondre), bouton Quitter (POST /api/quit avec Content-Type: application/json : les
+   processus webapp doivent s'arrêter), dossier déplacé vers un chemin avec espaces, --desinstaller.
+   Attention : si un antivirus ou un proxy inspecte le HTTPS sur cet ordinateur, il faut injecter son certificat
+   racine dans les conteneurs.
+3. Corriger ce qui ne marche pas, mettre à jour ETAT-DES-LIEUX.md, puis me faire le bilan et me demander si je veux
+   commiter.
