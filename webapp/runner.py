@@ -41,7 +41,7 @@ class Run:
     ended: float | None = None
     stop_requested: bool = False
     message: str = ""
-    logs: collections.deque = field(default_factory=lambda: collections.deque(maxlen=400))
+    logs: collections.deque = field(default_factory=lambda: collections.deque(maxlen=1500))
 
     def log(self, text: str) -> None:
         self.logs.append(f"{datetime.datetime.now():%H:%M:%S} {text}")
@@ -53,7 +53,7 @@ class Run:
             "stop_requested": self.stop_requested,
             "seconds": round((self.ended or time.time()) - self.started),
             "total": len(self.items), "done": counts["done"], "errors": counts["error"],
-            "skipped": counts["skipped"], "items": [i.public() for i in self.items], "logs": list(self.logs)[-200:],
+            "skipped": counts["skipped"], "items": [i.public() for i in self.items], "logs": list(self.logs)[-600:],
         }
 
 
@@ -137,6 +137,15 @@ def real_execute(run: Run) -> None:
             save_status(Path("."), logged)
             if not logged:
                 run.log("Gemini n'est connecté à aucun compte : modèles limités. Conseillé : Réglages > Se connecter à Gemini.")
+        except Exception:
+            pass
+        try:  # idem pour ChatGPT
+            from webapp.gemini_login import CHATGPT_STATE_FILE, is_chatgpt_logged_in, save_status
+
+            logged = is_chatgpt_logged_in(browser.ctx.cookies("https://chatgpt.com"))
+            save_status(Path("."), logged, CHATGPT_STATE_FILE)
+            if not logged and "gpt" in cfg["llm"]["engines"]:
+                run.log("ChatGPT n'est connecté à aucun compte : usage limité. Conseillé : Réglages > Se connecter à ChatGPT.")
         except Exception:
             pass
         for item in run.items:

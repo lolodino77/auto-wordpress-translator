@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from webapp.gemini_login import GeminiLogin
+from webapp.gemini_login import ChatGPTLogin, GeminiLogin
 from webapp.runner import Item, RunManager, real_execute
 from webapp.store import Store, StoreError
 
@@ -198,13 +198,15 @@ def create_app(root: Path, runs: RunManager | None = None,
                reconcile: Callable[[Path, dict], None] = default_reconcile,
                draft_states: Callable[[Path, dict, list[int]], dict[int, str]] = default_draft_states,
                quit_callback: Callable[[], None] | None = None,
-               gemini: GeminiLogin | None = None) -> FastAPI:
+               gemini: GeminiLogin | None = None,
+               chatgpt: ChatGPTLogin | None = None) -> FastAPI:
     root = Path(root).resolve()
 
     started_stamp = code_stamp(root)
     store = Store(root)
     runs = runs or RunManager(real_execute)
     gemini = gemini or GeminiLogin(root)
+    chatgpt = chatgpt or ChatGPTLogin(root)
     app = FastAPI(title="Traducteur WordPress", docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
@@ -311,6 +313,7 @@ def create_app(root: Path, runs: RunManager | None = None,
             "ui_version": ui_version(),
             "drafts_check_error": sync_error[0],
             "gemini_logged_in": gemini.status().get("logged_in"),  # None : jamais vérifié
+            "chatgpt_logged_in": chatgpt.status().get("logged_in"),
         }
 
     # --- articles -----------------------------------------------------------------------------------------
@@ -363,8 +366,8 @@ def create_app(root: Path, runs: RunManager | None = None,
         if body.mode not in ("brouillon", "apercu"):
             raise StoreError("Mode inconnu.")
         c = cfg()
-        if gemini.window_open:
-            raise StoreError("Fermez d'abord la fenêtre de connexion à Gemini (bouton « C'est fait » dans Réglages).")
+        if gemini.window_open or chatgpt.window_open:
+            raise StoreError("Fermez d'abord la fenêtre de connexion à Gemini ou ChatGPT (bouton « C'est fait » dans Réglages).")
         if body.mode == "brouillon":
             wp = c["wordpress"]
             needed = "wp_credentials.json" if wp.get("mode") == "selfhosted" else "wp_token.json"
@@ -461,31 +464,41 @@ def create_app(root: Path, runs: RunManager | None = None,
             raise StoreError("Indiquez le nom d'utilisateur et le mot de passe d'application.")
         return save_credentials(root, c, body.username.strip(), body.app_password.strip())
 
-    # --- connexion facultative à Gemini (fortement conseillée : meilleurs modèles) --------------------------------
-    @app.get("/api/gemini")
-    def gemini_status(verify: bool = False):
-        if verify and not gemini.window_open and not runs.running:  # relit les cookies du profil (connexion expirée ?)
+    # --- connexion facultative à Gemini et à ChatGPT (fortement conseillée : meilleurs modèles) -------------------
+    def register_login(name: str, label: str, login, other, host: str, is_in) -> None:
+        """/api/<name> : état ; /api/<name>/login : ouvre la fenêtre ; /api/<name>/close : « C'est fait »."""
+
+        @app.get(f"/api/{name}")
+        def login_status(verify: bool = False):
+            if verify and not login.window_open and not other.window_open and not runs.running:
+                try:  # relit les cookies du profil (connexion expirée ?)
+                    from webapp.gemini_login import cookie_names, save_status
+                    save_status(root, is_in([{"name": n} for n in cookie_names(cfg()["llm"]["profile_dir"], host)]),
+                                login.state_file)
+                except OSError:
+                    pass  # profil illisible (navigateur ouvert) : on garde le dernier état connu
+            return login.status()
+
+        @app.post(f"/api/{name}/login")
+        def login_open():
+            if runs.running:
+                raise StoreError(f"Une traduction est en cours : attendez sa fin pour vous connecter à {label}.")
+            if other.window_open:  # même profil de navigateur : une seule fenêtre à la fois
+                raise StoreError("Une autre fenêtre de connexion est déjà ouverte : terminez-la d'abord (« C'est fait »).")
             try:
-                from webapp.gemini_login import cookie_names, is_logged_in, save_status
-                save_status(root, is_logged_in([{"name": n} for n in cookie_names(cfg()["llm"]["profile_dir"])]))
-            except OSError:
-                pass  # profil illisible (navigateur ouvert) : on garde le dernier état connu
-        return gemini.status()
+                login.open(cfg()["llm"]["profile_dir"])
+            except RuntimeError as e:
+                raise StoreError(str(e))
+            return login.status()
 
-    @app.post("/api/gemini/login")
-    def gemini_login():
-        if runs.running:
-            raise StoreError("Une traduction est en cours : attendez sa fin pour vous connecter à Gemini.")
-        try:
-            gemini.open(cfg()["llm"]["profile_dir"])
-        except RuntimeError as e:
-            raise StoreError(str(e))
-        return gemini.status()
+        @app.post(f"/api/{name}/close")
+        def login_close():
+            login.close()
+            return {"ok": True}
 
-    @app.post("/api/gemini/close")
-    def gemini_close():
-        gemini.close()
-        return {"ok": True}
+    from webapp.gemini_login import is_chatgpt_logged_in, is_logged_in
+    register_login("gemini", "Gemini", gemini, chatgpt, "google.com", is_logged_in)
+    register_login("chatgpt", "ChatGPT", chatgpt, gemini, "chatgpt.com", is_chatgpt_logged_in)
 
     @app.post("/api/quit")
     def quit_program():

@@ -415,7 +415,7 @@ class GeminiConnection(unittest.TestCase):
     """Connexion facultative à Gemini : fenêtre ouverte à la demande, jamais en même temps qu'une traduction."""
 
     def setUp(self):
-        from webapp.gemini_login import GeminiLogin
+        from webapp.gemini_login import ChatGPTLogin, GeminiLogin
         self.root = Path(tempfile.mkdtemp())
         shutil.copy(HERE / "config.toml", self.root / "config.toml")
         shutil.copytree(HERE / "articles_templates", self.root / "articles_templates")
@@ -434,14 +434,17 @@ class GeminiConnection(unittest.TestCase):
             on_check(self.logged)
 
         self.gemini = GeminiLogin(self.root, session=session)
+        self.chatgpt = ChatGPTLogin(self.root, session=session)
         self.release = threading.Event()
         self.runs = RunManager(lambda run: self.release.wait(5))
         self.c = TestClient(create_app(self.root, runs=self.runs, statuses=lambda r, s: {},
-                                       reconcile=lambda r, c: None, draft_states=lambda r, c, i: {}, gemini=self.gemini),
+                                       reconcile=lambda r, c: None, draft_states=lambda r, c, i: {}, gemini=self.gemini,
+                                       chatgpt=self.chatgpt),
                             base_url="http://127.0.0.1:8710")
 
     def tearDown(self):
         self.gemini.close()
+        self.chatgpt.close()
         self.release.set()
         shutil.rmtree(self.root, ignore_errors=True)
 
@@ -485,6 +488,32 @@ class GeminiConnection(unittest.TestCase):
         r = self.c.post("/api/gemini/login", headers=H)
         self.assertEqual(r.status_code, 400)
         self.assertIn("traduction est en cours", r.json()["detail"])
+
+    def test_chatgpt_login_is_separate_from_gemini(self):
+        self.assertIsNone(self.c.get("/api/chatgpt").json()["logged_in"])
+        self.assertIsNone(self.c.get("/api/status").json()["chatgpt_logged_in"])
+        self.logged = True
+        self.assertTrue(self.c.post("/api/chatgpt/login", headers=H).json()["window_open"])
+        self.assertTrue(self.window.wait(2))
+        # même profil de navigateur : pas de seconde fenêtre (Gemini) en même temps, ni de traduction
+        r = self.c.post("/api/gemini/login", headers=H)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("autre fenêtre", r.json()["detail"])
+        self.c.post("/api/articles/urls", headers=H, json={"urls": ["https://example.com/a"]})
+        self.assertEqual(self.c.post("/api/runs", headers=H, json={"mode": "brouillon"}).status_code, 400)
+        self.c.post("/api/chatgpt/close", headers=H)
+        for _ in range(200):
+            if not self.chatgpt.window_open:
+                break
+            time.sleep(0.01)
+        self.assertTrue(self.c.get("/api/chatgpt").json()["logged_in"])
+        self.assertTrue(self.c.get("/api/status").json()["chatgpt_logged_in"])
+        self.assertIsNone(self.c.get("/api/gemini").json()["logged_in"])  # Gemini n'a pas bougé
+
+    def test_chatgpt_session_cookie(self):
+        from webapp.gemini_login import is_chatgpt_logged_in
+        self.assertFalse(is_chatgpt_logged_in([{"name": "oai-did"}, {"name": "__cf_bm"}]))  # visiteur anonyme
+        self.assertTrue(is_chatgpt_logged_in([{"name": "__Secure-next-auth.session-token.0"}]))
 
     def test_google_session_cookies(self):
         from webapp.gemini_login import is_logged_in

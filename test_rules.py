@@ -1067,6 +1067,24 @@ class ParseAnswer(unittest.TestCase):
         self.assertEqual(a.to_check, ["Livre 1", "Livre 2"])
         self.assertNotIn("A_VERIFIER", a.html)
 
+    def test_missing_separator_line_is_tolerated(self):
+        """ChatGPT oublie parfois la ligne « --- » entre l'en-tête et le corps (constaté en novembre 2026)."""
+        raw = ("TITRE: Un titre\n\nTAGS: a, b\n\nCATEGORIE: Théologie\n\nSLUG: un-titre\nRESUME: Montre que le texte est la.\n\n"
+               "<p>Le texte est la et des.</p>\n<!--A_VERIFIER: rien-->\n<!--FIN-->")
+        a = parse_answer(raw)
+        self.assertEqual((a.title, a.tags, a.category, a.slug), ("Un titre", ["a", "b"], "Théologie", "un-titre"))
+        self.assertTrue(a.html.startswith("<p>Le texte"))
+        self.assertTrue(a.summary.startswith("Montre"))
+
+    def test_a_rule_inside_the_body_is_not_the_separator(self):
+        a = parse_answer("TITRE: T\nTAGS: a\n<p>Le texte est la.</p>\n---\n<p>Et la suite des.</p>\n<!--FIN-->")
+        self.assertIn("Et la suite", a.html)
+        self.assertTrue(a.html.startswith("<p>Le texte"))
+
+    def test_body_missing_entirely_is_refused(self):
+        with self.assertRaises(ValueError):
+            parse_answer("TITRE: T\nTAGS: a\n<!--FIN-->")
+
     def test_a_verifier_rien_is_dropped(self):
         a = parse_answer("TITRE: T\nTAGS: a\n---\n<p>Le texte est la et des.</p>\n<!--A_VERIFIER: rien-->\n<!--FIN-->")
         self.assertEqual(a.to_check, [])

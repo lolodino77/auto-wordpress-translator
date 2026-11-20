@@ -21,7 +21,9 @@ SITES = {
     },
     "gpt": {
         "url": "https://chatgpt.com/",
-        "input": "#prompt-textarea, textarea#mobile-composer-prompt",
+        # #prompt-textarea : ancienne interface ; div.ProseMirror : interface actuelle (champ sans identifiant, novembre 2026)
+        "input": "#prompt-textarea, textarea#mobile-composer-prompt, div.ProseMirror[contenteditable='true'], "
+                 "[role=textbox][contenteditable='true']",
         "code": "pre code",
         "answer": "[data-message-author-role='assistant']",
     },
@@ -118,6 +120,10 @@ class Browser:
         )
         return self
 
+    def log(self, msg: str) -> None:
+        """Ligne du « Journal détaillé » (page Traduction)."""
+        self._log(msg)
+
     def __exit__(self, *exc):
         self.ctx.close()
         self._pw.stop()
@@ -133,12 +139,12 @@ class Browser:
     def translate(self, engine: str, prompt: str, timeout_s: int = 600) -> str:
         site = SITES[engine]
         page = self.ctx.new_page()
+        t0 = time.time()
+        self._log(f"[{engine}] nouvel onglet ; requête de {len(prompt)} caractères ({len(prompt.split())} mots).")
         try:
-            page.goto(site["url"], wait_until="domcontentloaded")
-            try:
-                page.wait_for_selector(site["input"], timeout=60_000)
-            except PWTimeout:
-                raise LLMUnavailable(f"{engine}: zone de saisie introuvable (déconnecté ou captcha ?)")
+            self._open_chat(page, engine, site)
+            self._log(f"[{engine}] zone de saisie trouvée ({time.time() - t0:.0f} s) : {_first_match(page, site['input'])} ; "
+                      f"page « {_title(page)} » ({_short_url(page)}).")
             if engine == "gemini":
                 self._best_gemini_model(page)
             # La page se re-rend parfois pendant le chargement : on re-localise la zone de saisie à chaque essai
@@ -151,16 +157,66 @@ class Browser:
                     page.keyboard.insert_text(prompt)
                     page.wait_for_timeout(1500)
                     page.keyboard.press("Enter")
+                    self._log(f"[{engine}] requête envoyée (essai de saisie {attempt}) ; attente de la réponse.")
                     break
                 except PWError as e:
+                    self._log(f"[{engine}] saisie : erreur à l'essai {attempt} : {str(e).splitlines()[0][:200]}")
                     if attempt == 2:
                         raise LLMUnavailable(f"{engine}: saisie impossible ({str(e).splitlines()[0]})")
                     page.wait_for_timeout(3000)
-            return self._wait_answer(page, site["code"], engine, timeout_s, site.get("answer"))
+            text = self._wait_answer(page, site["code"], engine, timeout_s, site.get("answer"), self._log)
+            self._log(f"[{engine}] réponse complète reçue : {len(text)} caractères en {time.time() - t0:.0f} s.")
+            return text
         except PWError as e:  # toute autre erreur Playwright : on laisse l'agent passer au moteur suivant
+            self._log(f"[{engine}] erreur navigateur : {str(e).splitlines()[0][:300]}")
             raise LLMUnavailable(f"{engine}: erreur navigateur ({str(e).splitlines()[0]})")
+        except (LLMUnavailable, LLMRefused) as e:
+            self._log(f"[{engine}] échec après {time.time() - t0:.0f} s : {e}")
+            self._log(f"[{engine}] état de la page : « {_title(page)} » ({_short_url(page)}) ; fin du texte vu : "
+                      f"« {' '.join(_page_text(page).split())[-300:]} »")
+            raise
         finally:
             page.close()
+
+    def _open_chat(self, page, engine: str, site: dict) -> None:
+        """Ouvre le site et attend la zone de saisie. Si elle n'apparaît pas : ferme les bannières, recharge une fois ; si un
+        contrôle anti-robot est affiché, laisse le temps à l'utilisateur de le résoudre dans la fenêtre. En cas d'échec,
+        l'erreur dit POURQUOI (anti-robot, connexion demandée, page trop lente ou changée) et une capture est conservée."""
+        for attempt in (1, 2):
+            self._log(f"[{engine}] ouverture de {site['url']} (tentative {attempt}/2).")
+            page.goto(site["url"], wait_until="domcontentloaded")
+            if self._wait_input(page, site, 45_000):
+                return
+            self._log(f"[{engine}] zone de saisie absente après 45 s ; page « {_title(page)} » ({_short_url(page)}).")
+            _dismiss_banners(page)  # une bannière ou une fenêtre « rester déconnecté » peut masquer la page
+            if self._wait_input(page, site, 5_000):
+                return
+            kind = _page_problem(page)
+            self._log(f"[{engine}] diagnostic : {kind or 'inconnu'} ; texte vu : « {' '.join(_page_text(page).split())[:200]} »")
+            if kind == "captcha":
+                self._log(f"{engine} affiche un contrôle anti-robot : résolvez-le dans la fenêtre du navigateur "
+                          "(vous avez 3 minutes).")
+                if self._wait_input(page, site, 180_000):
+                    return
+                break  # non résolu : inutile de recharger
+            if attempt == 1:
+                self._log(f"{engine} : page de saisie introuvable, nouvel essai.")
+        shot = _save_debug(page, engine)
+        cause = {
+            "captcha": "contrôle anti-robot non résolu",
+            "login": "le site demande de se connecter",
+        }.get(kind, "page trop lente à charger ou interface du site modifiée")
+        seen = " ".join(_page_text(page).split())[:140]
+        raise LLMUnavailable(f"{engine}: zone de saisie introuvable ({cause}). Page vue : « {seen} »."
+                             + (f" Capture : {shot}" if shot else ""))
+
+    @staticmethod
+    def _wait_input(page, site: dict, timeout_ms: int) -> bool:
+        try:
+            page.wait_for_selector(site["input"], timeout=timeout_ms)
+            return True
+        except PWTimeout:
+            return False
 
     def _best_gemini_model(self, page) -> None:
         """Choisit le meilleur mode accessible et le niveau de réflexion le plus élevé. Ne bloque jamais la traduction :
@@ -212,13 +268,25 @@ class Browser:
             self._log(f"Gemini : « {texts[i]} » est réservé aux abonnements payants ; choix suivant.")
 
     @staticmethod
-    def _wait_answer(page, code_sel: str, engine: str, timeout_s: int, answer_sel: str | None = None) -> str:
+    def _wait_answer(page, code_sel: str, engine: str, timeout_s: int, answer_sel: str | None = None, log=None) -> str:
         """Attend le bloc de code terminé par <!--FIN-->. Si le LLM a fini de répondre SANS ce bloc (refus, réponse
         à côté), lève LLMRefused tout de suite au lieu d'attendre la fin du délai (10 minutes)."""
-        deadline = time.time() + timeout_s
-        last_text, same_polls = None, 0
+        log = log or (lambda msg: None)
+        start = time.time()
+        deadline = start + timeout_s
+        last_text, same_polls, next_report = None, 0, start + 30
         while time.time() < deadline:
             page.wait_for_timeout(POLL_S * 1000)
+            if time.time() >= next_report:  # point d'étape toutes les 30 s
+                next_report = time.time() + 30
+                try:
+                    nb = page.locator(code_sel).count()
+                    last_len = len(page.locator(code_sel).last.inner_text()) if nb else 0
+                    nb_ans = page.locator(answer_sel).count() if answer_sel else 0
+                    log(f"[{engine}] attente de la réponse : {time.time() - start:.0f} s ; {nb} bloc(s) de code "
+                        f"(dernier : {last_len} caractères) ; {nb_ans} message(s) de l'assistant.")
+                except PWError:
+                    pass
             if re.search(r"Impossible de se connecter|Something went wrong|Une erreur est survenue",
                          page.inner_text("body")):
                 raise LLMUnavailable(f"{engine}: le site a refusé la requête (connexion requise ?)")
@@ -226,6 +294,10 @@ class Browser:
             if blocks.count():
                 text = blocks.last.inner_text()
                 if END_MARK in text:
+                    if blocks.count() > 1:
+                        sizes = [len(blocks.nth(i).inner_text()) for i in range(blocks.count() - 1)]
+                        log(f"[{engine}] attention : {blocks.count()} blocs de code dans la réponse ; le dernier est utilisé "
+                            f"(les autres font {sizes} caractères).")
                     return text
                 last_text, same_polls = None, 0  # traduction en cours d'écriture : on attend
                 continue
@@ -238,6 +310,8 @@ class Browser:
             same_polls = same_polls + 1 if answer == last_text else 0
             last_text = answer
             excerpt = " ".join(answer.split())[:160]
+            if same_polls == 1:
+                log(f"[{engine}] pas de bloc de code ; texte de l'assistant stable : « {excerpt} »")
             if same_polls >= 1 and _REFUSAL.search(answer):
                 raise LLMRefused(f"{engine} a répondu sans traduire : « {excerpt} »")
             if same_polls * POLL_S >= STABLE_S:
@@ -264,6 +338,52 @@ def _dismiss_banners(page) -> None:
             page.wait_for_timeout(800)
         except (PWTimeout, PWError):
             pass
+
+
+_CAPTCHA = re.compile(r"Vérifiez que vous êtes (?:un )?humain|Verify you are human|Just a moment|Un instant|"
+                      r"Checking your browser|captcha|Cloudflare", re.I)
+_LOGIN_WALL = re.compile(r"Se connecter|Log in|Sign up|S'inscrire|Welcome back|Bon retour", re.I)
+
+
+def _title(page) -> str:
+    try:
+        return page.title()[:80]
+    except PWError:
+        return "?"
+
+
+def _short_url(page) -> str:
+    try:
+        return page.url[:90]
+    except PWError:
+        return "?"
+
+
+def _page_text(page) -> str:
+    try:
+        return page.inner_text("body", timeout=3_000)
+    except (PWError, PWTimeout):
+        return ""
+
+
+def _page_problem(page) -> str:
+    """« captcha », « login » ou « » (inconnu) selon ce que la page affiche à la place de la zone de saisie."""
+    text = _page_text(page)
+    if _CAPTCHA.search(text) or _CAPTCHA.search(page.title() if not page.is_closed() else ""):
+        return "captcha"
+    return "login" if _LOGIN_WALL.search(text) else ""
+
+
+def _save_debug(page, engine: str) -> str:
+    """Capture de la page au moment de l'échec (output/llm_debug/), pour comprendre ce que le site affichait."""
+    try:
+        folder = Path("output") / "llm_debug"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{engine}-{time.strftime('%Y%m%d-%H%M%S')}.png"
+        page.screenshot(path=str(path))
+        return path.as_posix()
+    except Exception:
+        return ""
 
 
 def _close_menus(page) -> None:
@@ -310,7 +430,14 @@ def parse_answer(raw: str) -> Answer:
     <!--A_VERIFIER:...-->."""
     raw = raw.replace(END_MARK, "").strip()
     m = re.search(r"TITRE\s*:\s*(.+?)\s*\n(.*?)\n\s*-{3,}\s*\n(.*)", raw, re.S)
+    if m and re.search(r"(?m)^\s*<", m.group(2)):
+        m = None  # ce « --- » est dans le corps de l'article, pas le séparateur : l'en-tête n'en a pas
     if not m:
+        # ChatGPT oublie parfois la ligne « --- » : l'en-tête (TITRE, TAGS, CATEGORIE, SLUG, RESUME) se termine alors
+        # à la première ligne qui n'est ni un de ces champs ni vide, et le corps commence là.
+        m = re.search(r"TITRE\s*:\s*([^\n]+?)[ \t]*\n((?:[ \t]*(?:TAGS|CATEGORIE|SLUG|RESUME)[ \t]*:[^\n]*(?:\n|$)|[ \t]*\n)*)"
+                      r"(?:[ \t]*-{3,}[ \t]*\n)?(.*)", raw, re.S)
+    if not m or not m.group(3).strip():
         raise ValueError("Format de réponse inattendu (TITRE/TAGS/--- manquants)")
     fields = {k.upper(): v.strip() for k, v in re.findall(r"(?m)^\s*(TAGS|CATEGORIE|SLUG|RESUME)\s*:\s*(.*)$", m.group(2))}
     if not fields.get("TAGS"):

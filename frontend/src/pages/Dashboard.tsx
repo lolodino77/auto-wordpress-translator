@@ -182,6 +182,20 @@ export default function Dashboard() {
                     )}
                   </div>
                 </li>
+                <li className={status.chatgpt_logged_in ? "ok" : "warn"}>
+                  {status.chatgpt_logged_in ? <CheckCircle2 /> : <AlertTriangle />}
+                  <div className="grow">
+                    <strong>Compte ChatGPT</strong>
+                    {status.chatgpt_logged_in ? (
+                      "Connecté : les meilleurs modèles sont utilisés."
+                    ) : (
+                      <>
+                        Non connecté : usage limité, traductions plus lentes. Fortement conseillé :{" "}
+                        <Link to="/reglages">se connecter à ChatGPT</Link>.
+                      </>
+                    )}
+                  </div>
+                </li>
                 <li className={status.specs ? "ok" : "warn"}>
                   {status.specs ? <CheckCircle2 /> : <AlertTriangle />}
                   <div className="grow">

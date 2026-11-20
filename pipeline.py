@@ -79,23 +79,43 @@ def translate_article(art: Article, cfg: dict, browser: Browser, categories: lis
     expected = len(set(re.findall(r"\[NOTE (\d+)\]", art.text)))
     errors = []
     accepted = None
+    log = getattr(browser, "log", lambda msg: None)  # « Journal détaillé » de la page Traduction (absent hors interface)
+    log(f"Source : « {art.title} », {len(art.text.split())} mots, {expected} appel(s) de note ; moteurs : {cfg['llm']['engines']}.")
     for engine in cfg["llm"]["engines"]:
         for attempt in range(1, MAX_ATTEMPTS + 1):
+            log(f"=== {engine}, essai {attempt}/{MAX_ATTEMPTS} ===")
             try:
-                ans = parse_answer(browser.translate(engine, prompt))
+                raw = browser.translate(engine, prompt)
+                flat = " ".join(raw.split())
+                log(f"[{engine}] réponse brute : {len(raw)} caractères, {raw.count(chr(10)) + 1} lignes ; "
+                    f"début : « {flat[:200]} » ; fin : « {flat[-200:]} »")
+                try:
+                    ans = parse_answer(raw)
+                except ValueError as e:
+                    _keep_rejected(art, raw)  # réponse brute conservée : output/rejected/ (pour comprendre le refus)
+                    start = " ".join(raw.split())[:150]
+                    has = {k: bool(re.search(p, raw, re.M)) for k, p in
+                           (("TITRE", r"TITRE\s*:"), ("---", r"^\s*-{3,}\s*$"), ("TAGS", r"TAGS\s*:"))}
+                    log(f"[{engine}] format refusé : {e}. Présence de {has}. Premières lignes : {raw.strip().splitlines()[:8]}")
+                    raise ValueError(f"{e}. Début de la réponse : « {start} » (réponse complète : output/rejected/)") from e
                 body, rep = rules.apply_all(ans.html, abbrevs)
                 opens, closes = body.count("[["), body.count("]]")
                 # Garde-fou BLOQUANT : une traduction avec des notes en trop (inventées), en moins (perdues) ou mal
                 # fermées n'est jamais publiée. Le dernier essai refusé est conservé dans output/rejected/.
                 if opens != closes or opens != expected or "[NOTE" in body or "NOTES DE BAS DE PAGE" in body:
                     _keep_rejected(art, ans.html)
+                    log(f"[{engine}] notes : {expected} attendue(s), {opens} « [[ » et {closes} « ]] » dans la traduction.")
                     raise ValueError(f"{expected} appel(s) de note dans la source mais {opens} « [[ » et {closes} « ]] » dans la traduction")
                 accepted = (ans, body, rep)
+                log(f"[{engine}] traduction acceptée : titre « {ans.title} », {len(ans.tags)} étiquette(s), "
+                    f"{opens} note(s), {len(body)} caractères de HTML.")
                 break
             except ValueError as e:
+                log(f"[{engine}] essai {attempt} refusé : {str(e)[:300]}")
                 errors.append(f"{engine} (essai {attempt}): {e}")
             except LLMUnavailable as e:
-                errors.append(f"{engine}: {e}")
+                log(f"[{engine}] moteur indisponible : {str(e)[:300]}")
+                errors.append(str(e))  # le message commence déjà par le nom du moteur
                 break  # moteur indisponible : inutile de réessayer, on passe au suivant
         if accepted:
             break

@@ -85,3 +85,21 @@ export function splitTags(text: string): string[] {
     .map((t) => t.trim())
     .filter(Boolean);
 }
+
+/** Textes de la connexion facultative à un compte, par moteur. */
+export const LOGIN_INFO = {
+  gemini: {
+    name: "Gemini",
+    account: "compte Google",
+    why: "Sans compte, il n'utilise que ses modèles les plus limités : traductions moins bonnes et refus plus fréquents (« Cela dépasse mes capacités »). Avec un compte Google (gratuit), il utilise de bien meilleurs modèles.",
+    where: "en haut à droite de Gemini",
+    password: "Google",
+  },
+  chatgpt: {
+    name: "ChatGPT",
+    account: "compte ChatGPT",
+    why: "Sans compte, ChatGPT limite fortement les messages et utilise un modèle réduit : traductions plus lentes, interrompues par des limites d'usage. Avec un compte OpenAI (gratuit), l'usage est bien plus confortable.",
+    where: "en haut à droite de ChatGPT",
+    password: "OpenAI",
+  },
+} as const;

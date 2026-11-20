@@ -13,38 +13,44 @@ import Help from "./pages/Help";
 import AddArticles from "./pages/AddArticles";
 import Login from "./pages/Login";
 import Closed from "./pages/Closed";
-import GeminiGate from "./pages/GeminiGate";
+import LoginGate from "./pages/LoginGate";
+import type { LoginProvider } from "./api";
 import { useApp } from "./context";
 import type { ReactNode } from "react";
 
-/** Le rappel Gemini n'est montré qu'une fois par ouverture du programme (l'onglet) : un rechargement de page ne le repose pas. */
-const GEMINI_SEEN = "gemini_gate_seen";
-function geminiSeen(): boolean {
+/** Les rappels de connexion (Gemini, puis ChatGPT) ne sont montrés qu'une fois par ouverture du programme (l'onglet) :
+ *  un rechargement de page ne les repose pas. */
+const LOGIN_ORDER: LoginProvider[] = ["gemini", "chatgpt"];
+const seenKey = (p: LoginProvider) => `${p}_gate_seen`;
+function seen(p: LoginProvider): boolean {
   try {
-    return sessionStorage.getItem(GEMINI_SEEN) === "1";
+    return sessionStorage.getItem(seenKey(p)) === "1";
   } catch {
     return false;
   }
 }
 
 /** Portail : tant que le compte WordPress n'est pas connecté et vérifié, seule la page de connexion est accessible.
- *  Ensuite, rappel (facultatif) de se connecter à Gemini à chaque ouverture du programme. */
+ *  Ensuite, rappel (facultatif) de se connecter à Gemini puis à ChatGPT à chaque ouverture du programme. */
 function Gate({ children }: { children: ReactNode }) {
   const { account, accountReady, closed } = useApp();
-  const [geminiDone, setGeminiDone] = useState(geminiSeen);
+  const [done, setDone] = useState<Record<string, boolean>>(() => Object.fromEntries(LOGIN_ORDER.map((p) => [p, seen(p)])));
   if (closed) return <Closed />;
   if (!accountReady) return <div className="login-splash" aria-busy="true" />;
   if (!account?.connected) return <Login />;
-  if (!geminiDone) {
+  const pending = LOGIN_ORDER.find((p) => !done[p]);
+  if (pending) {
     return (
-      <GeminiGate
+      <LoginGate
+        key={pending}
+        provider={pending}
         onDone={() => {
           try {
-            sessionStorage.setItem(GEMINI_SEEN, "1");
+            sessionStorage.setItem(seenKey(pending), "1");
           } catch {
             /* stockage indisponible : le rappel reviendra au prochain chargement */
           }
-          setGeminiDone(true);
+          setDone((d) => ({ ...d, [pending]: true }));
         }}
       />
     );

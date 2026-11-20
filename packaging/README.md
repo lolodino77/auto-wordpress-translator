@@ -18,7 +18,8 @@ packaging/
     LISEZ-MOI.txt              notice pour les coéquipiers (mise à la racine du .zip)
   macos/, linux/       à venir : voir leur README
   assets/              icône (traducteur.ico pour Windows, traducteur.png pour Mac et Linux)
-  build_package.py     fabrique dist/TraducteurWordPress-<Système>.zip
+  build_package.py     fabrique dist/TraducteurWordPress-<Système>.zip (lancé par « Fabriquer le paquet Windows.bat »
+                       à la racine du projet : double-clic)
 ```
 
 Le dossier extrait chez le coéquipier :
@@ -53,41 +54,33 @@ ne contient jamais `input/` : la liste d'articles du développeur ne part pas ch
 
 ## Fabriquer le paquet Windows
 
-Depuis la racine du projet, dans PowerShell (remplacer `python` par celui de l'environnement conda si besoin) :
+**Double-cliquer sur `Fabriquer le paquet Windows.bat`** (à la racine du projet). Il enchaîne tout seul, sans rien taper :
 
-1. **Reconstruire l'interface** si `frontend/` a été modifié :
+1. reconstruction de l'interface (`npm run build`, après `npm ci` la toute première fois) ;
+2. `git add` des fichiers nouveaux ou modifiés du programme (sans commiter) ;
+3. fabrication de `dist/TraducteurWordPress-Windows.zip` (environ 1,3 Mo), puis ouverture du dossier `dist`.
 
-   ```powershell
-   cd frontend; npm run build; cd ..
-   ```
+Il faut seulement Git, Node.js et l'environnement conda du projet (`setup_env.ps1`). En cas d'erreur, la fenêtre reste
+ouverte avec le message. Ensuite :
 
-   Chaque construction crée un nouveau fichier `webapp/static/assets/index-<code>.js` (le code change à chaque fois) et
-   met à jour `webapp/static/index.html`. Le script refuse de fabriquer le paquet si l'interface construite est plus
-   ancienne que `frontend/src` (option `--force` pour passer outre).
-2. **Faire suivre par git tout ce qui est nouveau ou modifié** (sans forcément commiter) : seuls les fichiers suivis par
-   git sont embarqués, jamais un fichier personnel posé par erreur dans un dossier du programme.
+- **Tester** le `.zip` (voir plus bas) dans un dossier d'essai, **pas par-dessus la copie utilisée au quotidien**.
+- Envoyer ce `.zip` aux coéquipiers ; leur notice est le `LISEZ-MOI.txt` qu'il contient. Ils l'extraient **par-dessus**
+  l'ancienne version : identifiants, liste d'articles et traductions sont conservés, et le programme se met à jour
+  tout seul à la première ouverture (quelques secondes).
 
-   ```powershell
-   git add -A webapp packaging frontend *.py config.toml README.md
-   ```
+Pourquoi ces étapes (le script s'en charge) :
 
-   **Piège classique** : le nouveau fichier `index-<code>.js` n'est pas suivi tant qu'on ne l'a pas ajouté. Sans lui, le
-   paquet contient un `index.html` qui pointe vers un fichier absent : **l'interface s'ouvre toute blanche** chez le
-   coéquipier. Seuls les fichiers **nouveaux** (« ?? » dans `git status`) sont écartés ; un fichier déjà suivi est
-   embarqué dans son état actuel sur le disque, commité ou non.
-3. **Fabriquer le paquet** :
+- Chaque construction de l'interface crée un nouveau `webapp/static/assets/index-<code>.js`. Seuls les fichiers suivis
+  par git sont embarqués : sans le `git add`, le paquet aurait un `index.html` qui pointe vers un fichier absent et
+  **l'interface s'ouvrirait toute blanche** chez le coéquipier. Un fichier déjà suivi est embarqué dans son état actuel
+  sur le disque, commité ou non.
+- `build_package.py` refuse de fabriquer le paquet si l'interface est plus ancienne que `frontend/src`, et affiche
+  « Ignoré (pas suivi par git) » pour chaque fichier du programme qu'il écarte. Le fichier `VERSION` du paquet porte la
+  date et le commit, avec « modifié » si des changements ne sont pas commités.
 
-   ```powershell
-   python packaging/build_package.py windows
-   ```
-
-   Résultat : `dist/TraducteurWordPress-Windows.zip` (environ 1,3 Mo). Le script affiche « Ignoré (pas suivi par git) »
-   pour chaque fichier du programme qu'il écarte : si la liste mentionne un fichier du programme, refaire l'étape 2.
-   Le fichier `VERSION` du paquet porte la date et le commit, avec « modifié » si des changements ne sont pas commités.
-4. **Tester** le `.zip` (voir plus bas) dans un dossier d'essai, **pas par-dessus la copie utilisée au quotidien**.
-5. Envoyer ce `.zip` aux coéquipiers ; leur notice est le `LISEZ-MOI.txt` qu'il contient. Ils l'extraient **par-dessus**
-   l'ancienne version : identifiants, liste d'articles et traductions sont conservés, et le programme se met à jour
-   tout seul à la première ouverture (quelques secondes).
+À la main (équivalent du script), depuis la racine, dans PowerShell :
+`cd frontend; npm run build; cd ..`, puis `git add -A webapp packaging frontend *.py config.toml README.md`, puis
+`python packaging/build_package.py windows`.
 
 ## Tester
 

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Languages } from "lucide-react";
-import { api, type GeminiStatus } from "../api";
+import { api, type GeminiStatus, type LoginProvider } from "../api";
+import { LOGIN_INFO } from "../util";
 import { errorText, useApp } from "../context";
 
-/** Écran proposé à chaque ouverture du programme (après la connexion WordPress) tant que Gemini n'est connecté à aucun
- *  compte Google. La connexion reste facultative (« Continuer sans compte »), mais l'utilisateur ne peut plus l'oublier
+/** Écran proposé à chaque ouverture du programme (après la connexion WordPress) tant que Gemini (ou ChatGPT) n'est connecté
+ *  à aucun compte. La connexion reste facultative (« Continuer sans compte »), mais l'utilisateur ne peut plus l'oublier
  *  et ne s'en aperçoit pas après le début d'une traduction. */
-export default function GeminiGate({ onDone }: { onDone: () => void }) {
+export default function LoginGate({ provider, onDone }: { provider: LoginProvider; onDone: () => void }) {
+  const info = LOGIN_INFO[provider];
   const { notify } = useApp();
   const [st, setSt] = useState<GeminiStatus | null>(null);
   const [opened, setOpened] = useState(false); // la fenêtre de connexion a été ouverte depuis cet écran
@@ -14,14 +16,14 @@ export default function GeminiGate({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     let alive = true;
     const load = (verify: boolean) =>
-      api.gemini(verify).then((s) => alive && setSt(s)).catch(() => undefined);
+      api.llmLogin(provider, verify).then((s) => alive && setSt(s)).catch(() => undefined);
     load(true); // relit les cookies du profil : la connexion a pu expirer ou être faite en dehors du programme
     const t = window.setInterval(() => load(false), 2000); // suit la fenêtre de connexion
     return () => {
       alive = false;
       window.clearInterval(t);
     };
-  }, []);
+  }, [provider]);
 
   useEffect(() => {
     if (st?.window_open) setOpened(true);
@@ -34,14 +36,14 @@ export default function GeminiGate({ onDone }: { onDone: () => void }) {
 
   async function open() {
     try {
-      setSt(await api.geminiLogin());
+      setSt(await api.llmLoginOpen(provider));
     } catch (e) {
       notify("error", errorText(e));
     }
   }
 
   async function done() {
-    await api.geminiClose().catch(() => undefined);
+    await api.llmLoginClose(provider).catch(() => undefined);
   }
 
   const failed = opened && st && !st.window_open && st.logged_in !== true;
@@ -52,14 +54,14 @@ export default function GeminiGate({ onDone }: { onDone: () => void }) {
         <div className="login-logo" aria-hidden>
           <Languages />
         </div>
-        <h1 className="login-title">Compte Gemini</h1>
+        <h1 className="login-title">Compte {info.name}</h1>
         {st === null ? (
           <p className="login-message">Vérification…</p>
         ) : st.window_open ? (
           <>
             <p className="login-message">
-              <strong>Une fenêtre Chrome est ouverte sur Gemini.</strong> Cliquez sur « Se connecter » en haut à droite de Gemini et
-              entrez votre compte Google. Une fois connecté, fermez cette fenêtre Chrome (ou cliquez sur « C'est fait »).
+              <strong>Une fenêtre Chrome est ouverte sur {info.name}.</strong> Cliquez sur « Se connecter » {info.where} et
+              entrez votre {info.account}. Une fois connecté, fermez cette fenêtre Chrome (ou cliquez sur « C'est fait »).
             </p>
             <p className="login-message">
               {st.logged_in ? <strong style={{ color: "var(--green)" }}>✓ Connexion détectée.</strong> : "La connexion sera vérifiée à la fermeture de la fenêtre."}
@@ -74,20 +76,20 @@ export default function GeminiGate({ onDone }: { onDone: () => void }) {
           <>
             {(failed || st.error) && (
               <div className="login-error" role="alert">
-                {st.error || "Aucune connexion à un compte Google n'a été détectée."}
+                {st.error || `Aucune connexion à un ${info.account} n'a été détectée.`}
               </div>
             )}
             <p className="login-message">
-              Gemini n'est connecté à <strong>aucun compte Google</strong>. Sans compte, il n'utilise que ses modèles les plus limités :
-              traductions moins bonnes et refus plus fréquents. Connectez-vous maintenant (une seule fois, c'est gratuit) pour ne pas vous
-              en apercevoir en pleine traduction. Le programme ne voit jamais votre mot de passe Google.
+              {info.name} n'est connecté à <strong>aucun {info.account}</strong>. {info.why} Connectez-vous maintenant (une seule
+              fois, c'est gratuit) pour ne pas vous en apercevoir en pleine traduction. Le programme ne voit jamais votre mot de passe{" "}
+              {info.password}.
             </p>
             <div className="login-submit" style={{ gap: 8 }}>
               <button className="button" onClick={onDone}>
                 Continuer sans compte
               </button>
               <button className="button button-primary" onClick={open} autoFocus>
-                Se connecter à Gemini
+                Se connecter à {info.name}
               </button>
             </div>
           </>

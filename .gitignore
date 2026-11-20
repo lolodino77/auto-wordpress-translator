@@ -236,3 +236,4 @@ input/corbeille/
 dist/
 traducteur*.log
 gemini_session.json
+chatgpt_session.json
