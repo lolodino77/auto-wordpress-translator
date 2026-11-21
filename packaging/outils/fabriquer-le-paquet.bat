@@ -1,7 +1,7 @@
 @echo off
 rem Fabrique dist\TraducteurWordPress-<Systeme>.zip (a envoyer aux coequipiers). Outil du developpeur, sous Windows :
-rem appele par "Fabriquer le paquet Windows.bat" et "Fabriquer le paquet Linux.bat" (racine du projet), jamais embarque.
-rem   %1 = windows ou linux (packaging\<systeme>\system.py)   %2 = Windows ou Linux (nom du paquet)
+rem appele par "Fabriquer le paquet Windows.bat", "... Linux.bat" et "... Mac.bat" (racine du projet), jamais embarque.
+rem   %1 = windows, linux ou macos (packaging\<systeme>\system.py)   %2 = Windows, Linux ou Mac (nom du paquet)
 rem Etapes : 1) reconstruit l'interface  2) fait suivre par git les fichiers nouveaux  3) fabrique le .zip.
 chcp 65001 >nul
 setlocal EnableExtensions
@@ -92,7 +92,7 @@ pause
 exit /b 0
 
 :usage
-echo  Usage : fabriquer-le-paquet.bat windows Windows   (ou : linux Linux)
+echo  Usage : fabriquer-le-paquet.bat windows Windows   (ou : linux Linux, macos Mac)
 :echec
 echo.
 echo  La fabrication du paquet a echoue : voir le message ci-dessus.

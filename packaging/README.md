@@ -1,4 +1,4 @@
-# Version portable pour les coéquipiers (Windows, Linux ; Mac à venir)
+# Version portable pour les coéquipiers (Windows, Linux, Mac)
 
 But : un coéquipier qui ne programme pas reçoit un fichier `.zip`, l'extrait **où il veut**, lance **un** fichier, et
 le Traducteur s'ouvre. Rien d'autre à installer à la main (ni Python, ni Anaconda, ni Node.js), aucun droit
@@ -27,7 +27,11 @@ packaging/
                           manquantes (ldd), fichier .desktop + entrée du menu des applications
     ouvrir-le-traducteur.sh    le seul fichier à lancer (sh POSIX, pas de bash requis ; mis à la racine du .zip)
     LISEZ-MOI.txt              notice (fins de ligne Unix)
-  macos/                  à venir : voir son README (ajouter macos/system.py + lanceur + notice suffit)
+  macos/                  PROPRE AU MAC (prêt ; lanceur essayé dans un conteneur, essai sur un vrai Mac à faire)
+    system.py             class MacOS(System) : iCloud Drive, clé USB ou disque FAT/exFAT/NTFS, navigateur qui ne
+                          démarre pas (macOS trop ancien), application « Traducteur d'articles.app » fabriquée sur le Mac
+    Ouvrir le Traducteur.command   le seul fichier à ouvrir (sh POSIX ; le Finder l'ouvre dans le Terminal)
+    LISEZ-MOI.txt              notice (fins de ligne Unix ; avertissement de macOS au premier lancement)
   assets/                 icônes (traducteur.ico pour Windows, traducteur.png pour Linux et Mac)
   outils/                 outils du développeur, jamais embarqués : fabriquer-le-paquet.bat
   build_package.py        fabrique dist/TraducteurWordPress-<Système>.zip ; ne connaît aucun système : il lit lanceur,
@@ -37,7 +41,7 @@ packaging/
 Règles du cloisonnement (vérifiées par `test_packaging.Systems`) :
 
 - `common/` et `build_package.py` ne contiennent **aucun** test « si Windows… sinon… » ni rien de propre à un système
-  (`.bat`, `.sh`, PowerShell, `.desktop`, OneDrive…). Seul `system_base.current_platform()` traduit `sys.platform` en
+  (`.bat`, `.sh`, `.command`, PowerShell, `.desktop`, OneDrive, iCloud, osascript…). Seul `system_base.current_platform()` traduit `sys.platform` en
   nom de dossier.
 - Le paquet d'un système ne contient de `packaging/` que `common/`, `assets/` et **son** dossier : le paquet Linux n'a
   aucun `.bat`, le paquet Windows aucun fichier Linux (`manifest.program_files(…, system)`).
@@ -48,8 +52,9 @@ Le dossier extrait chez le coéquipier (même forme partout) :
 
 ```
 TraducteurWordPress-<Système>/
-  <lanceur>                      à double-cliquer : « Ouvrir le Traducteur.bat » / « ouvrir-le-traducteur.sh »
-  <icône>                        créée à la première ouverture : « Traducteur d'articles.lnk » / « .desktop »
+  <lanceur>                      à double-cliquer : « Ouvrir le Traducteur.bat » / « ouvrir-le-traducteur.sh » /
+                                 « Ouvrir le Traducteur.command »
+  <icône>                        créée à la première ouverture : « Traducteur d'articles.lnk » / « .desktop » / « .app »
   LISEZ-MOI.txt
   programme/                     le programme, et tout ce qui s'y ajoute sur l'ordinateur :
     .venv/, runtime/             Python, bibliothèques, navigateur (environ 700 Mo)
@@ -60,7 +65,8 @@ TraducteurWordPress-<Système>/
 À chaque ouverture, le lanceur lance `prepare.py --check` (une fraction de seconde) :
 
 - **prêt** : ouverture immédiate du Traducteur en arrière-plan, sans fenêtre (Windows : `pythonw.exe -m webapp` ;
-  Linux : `python -m webapp` détaché du terminal avec `TRADUCTEUR_ARRIERE_PLAN=1`, journal dans `traducteur.log`) ;
+  Linux et Mac : `python -m webapp` détaché du terminal avec `TRADUCTEUR_ARRIERE_PLAN=1`, journal dans
+  `traducteur.log`) ;
 - **première fois, nouvelle version, ou dossier déplacé** : téléchargement de l'outil `uv` si besoin, puis
   préparation complète, puis ouverture. Un dossier déplacé est réparé tout seul : l'environnement Python est recréé
   (il garde sinon l'ancien chemin) et l'icône est refaite.
@@ -93,10 +99,32 @@ ne contient jamais `input/` : la liste d'articles du développeur ne part pas ch
   est utilisé) ; sinon échec expliqué (installer Chrome, ou sous Debian/Ubuntu
   `sudo programme/.venv/bin/python -m playwright install-deps chromium`).
 
+## Mac en détail
+
+- **Visé** : macOS récent, Mac Apple (M1, M2…) ou Intel (`uv` ARM choisi d'après `hw.optional.arm64`, même si le
+  Terminal tourne sous Rosetta).
+- **Premier lancement** : tout ce qui vient d'Internet est « en quarantaine ». Le double-clic sur
+  `Ouvrir le Traducteur.command` affiche donc un avertissement de macOS (Gatekeeper) : « Ouvrir » sur les versions
+  anciennes, « Réglages Système > Confidentialité et sécurité > Ouvrir quand même » sur les récentes ; ou, sans
+  avertissement, `sh` + glisser le fichier dans le Terminal. La notice l'explique. Le lanceur lève ensuite la
+  quarantaine sur son propre dossier (`xattr`), pour que la question ne revienne pas.
+- **Application** : à la fin de la préparation, `Traducteur d'articles.app` est fabriquée dans le dossier (icône
+  `.icns` tirée de `traducteur.png` par `sips`/`iconutil`, fournis avec macOS). Fabriquée sur le Mac, elle n'est pas en
+  quarantaine : pas d'avertissement. Son programme est un petit script sh qui lance le lanceur rangé à côté d'elle
+  (elle suit le dossier s'il est déplacé ; glissée ailleurs, elle retrouve le dossier de la préparation). Sans
+  fenêtre de Terminal quand tout est prêt ; si une préparation est nécessaire, elle ouvre le Terminal elle-même.
+- **Ouverture** : `python -m webapp` dans une nouvelle session (le Mac n'a pas `setsid`) : fermer la fenêtre du
+  Terminal ne l'arrête pas, et le Terminal ne demande pas de « terminer les processus ». Une erreur de démarrage
+  s'affiche dans une boîte de dialogue (`osascript`, dans `webapp/__main__.py`).
+- **Mise à jour** : sur Mac, glisser un dossier sur son homonyme le REMPLACE (données perdues). La notice fait
+  utiliser `ditto nouveau ancien` dans le Terminal, qui ajoute sans effacer.
+- **Pas d'essai sur un vrai Mac à ce jour** : voir `ETAT-DES-LIEUX.md`.
+
 ## Fabriquer les paquets
 
-**Double-cliquer sur `Fabriquer le paquet Windows.bat` ou `Fabriquer le paquet Linux.bat`** (racine du projet, sous
-Windows : le paquet Linux se fabrique aussi depuis Windows). Les deux appellent `packaging/outils/fabriquer-le-paquet.bat`,
+**Double-cliquer sur `Fabriquer le paquet Windows.bat`, `Fabriquer le paquet Linux.bat` ou `Fabriquer le paquet
+Mac.bat`** (racine du projet, sous Windows : les paquets Linux et Mac se fabriquent aussi depuis Windows). Tous
+appellent `packaging/outils/fabriquer-le-paquet.bat`,
 qui enchaîne tout seul, sans rien taper :
 
 1. reconstruction de l'interface (`npm run build`, après `npm ci` la toute première fois) ;
@@ -125,11 +153,11 @@ Pourquoi ces étapes (le script s'en charge) :
 
 À la main (équivalent du script, sur n'importe quel système), depuis la racine : `cd frontend; npm run build; cd ..`,
 puis `git add -A webapp packaging frontend *.py config.toml README.md`, puis
-`python packaging/build_package.py windows` (ou `linux`).
+`python packaging/build_package.py windows` (ou `linux`, ou `macos`).
 
 ## Tester
 
-- `python -m unittest test_packaging` : contenu des deux paquets, cloisonnement des systèmes, vérification rapide,
+- `python -m unittest test_packaging` : contenu des trois paquets, cloisonnement des systèmes, vérification rapide,
   données (sans Internet).
 - Essai réel sous Windows : extraire le `.zip` dans un dossier d'essai, puis, sans ouvrir le navigateur ni faire de pause :
 
@@ -151,6 +179,14 @@ puis `git add -A webapp packaging frontend *.py config.toml README.md`, puis
   et bouton « Quitter » : `curl -X POST -H 'X-AWT: 1' http://127.0.0.1:8710/api/quit`. L'en-tête `X-AWT: 1` est
   obligatoire (le serveur refuse toute requête qui modifie quelque chose sans lui, comme l'interface l'envoie).
   Derrière un antivirus ou un proxy qui inspecte le HTTPS, injecter son certificat racine dans le conteneur.
+- Essai réel sur Mac : double-cliquer sur le `.zip`, puis, dans le Terminal, sans ouvrir le navigateur :
+
+  ```sh
+  cd ~/Downloads/TraducteurWordPress-Mac
+  TRADUCTEUR_SANS_LANCEMENT=1 TRADUCTEUR_AUTOMATIQUE=1 "./Ouvrir le Traducteur.command"
+  ```
+
+  puis double-clic sur `Traducteur d'articles.app` (ouverture sans Terminal), bouton « Quitter », dossier déplacé.
 
 ## Google Chrome et connexion à Gemini
 

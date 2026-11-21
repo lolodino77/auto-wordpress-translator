@@ -1,0 +1,59 @@
+TRADUCTEUR D'ARTICLES - VERSION PORTABLE POUR MAC
+=================================================
+
+Il vous faut : un Mac récent (Apple M1, M2... ou Intel), une connexion Internet et environ 1 Go de place libre.
+Rien ne s'installe ailleurs sur le Mac : tout reste dans le dossier que vous allez extraire. Aucun mot de passe
+n'est demandé.
+
+PREMIÈRE FOIS
+-------------
+1. Double-cliquez sur le fichier .zip reçu : le Finder crée le dossier « TraducteurWordPress-Mac ».
+   Rangez ce dossier dans votre dossier personnel (dans le Finder : menu Aller > Départ), par exemple dans un
+   dossier « Traducteur ». Évitez une clé USB, et évitez Bureau ou Documents s'ils sont synchronisés par iCloud.
+2. Dans ce dossier, double-cliquez sur « Ouvrir le Traducteur ».
+   La première fois, macOS affiche un avertissement, car ce fichier vient d'Internet et n'est pas signé par Apple :
+   - si la fenêtre propose « Ouvrir » : cliquez sur « Ouvrir » ;
+   - sinon (macOS récent, la fenêtre dit qu'Apple ne peut pas vérifier le fichier) : cliquez sur « Terminé »,
+     ouvrez le menu Pomme > Réglages Système > Confidentialité et sécurité, descendez jusqu'au message sur
+     « Ouvrir le Traducteur » et cliquez sur « Ouvrir quand même », puis confirmez ;
+   - autre possibilité, sans avertissement : ouvrez l'application Terminal (Applications > Utilitaires), tapez
+     sh suivi d'un espace, glissez le fichier « Ouvrir le Traducteur » dans la fenêtre, puis appuyez sur Entrée.
+3. Une fenêtre de Terminal prépare le programme (Python, navigateur...). Comptez quelques minutes, une seule fois.
+   Ne la fermez pas. À la fin, le Traducteur s'ouvre dans votre navigateur, et vous pouvez fermer cette fenêtre.
+
+ENSUITE
+-------
+- Double-cliquez sur « Traducteur d'articles » (carré bleu avec « 文 » et « A »), créé dans le dossier à la fin de
+  la préparation : il ouvre le Traducteur sans fenêtre de Terminal. Vous pouvez le glisser dans le Dock.
+  « Ouvrir le Traducteur » fait la même chose, avec une fenêtre de Terminal.
+- Le Traducteur s'ouvre dans votre navigateur. Pour le fermer : bouton « Quitter », en haut à droite de la page.
+  (Fermer seulement l'onglet ne l'arrête pas : il continue discrètement, et l'icône rouvre la page.)
+- La première fois, connectez-vous avec votre second compte WordPress (rôle « Contributeur ») et son
+  « mot de passe d'application » : la page de connexion explique comment les obtenir, pas à pas.
+- FORTEMENT CONSEILLÉ, une seule fois : Réglages > « Se connecter à Gemini », avec votre compte Google (gratuit).
+  Sans compte, Gemini n'utilise que des modèles limités : traductions moins bonnes et refus plus fréquents.
+  Il faut Google Chrome installé sur le Mac (gratuit : google.com/chrome).
+
+DÉPLACER LE DOSSIER
+-------------------
+Possible à tout moment (Traducteur fermé). Ensuite, double-cliquez sur « Traducteur d'articles » : le programme
+se répare tout seul en environ une minute.
+
+METTRE À JOUR
+-------------
+Attention : sur Mac, glisser un dossier sur un dossier du même nom REMPLACE tout son contenu (vos données
+seraient perdues). Faites plutôt ainsi :
+1. Fermez le Traducteur (bouton « Quitter »).
+2. Double-cliquez sur le nouveau .zip : il donne un nouveau dossier « TraducteurWordPress-Mac ».
+3. Ouvrez l'application Terminal (Applications > Utilitaires) et tapez  ditto  suivi d'un espace ; glissez dans la
+   fenêtre le NOUVEAU dossier, tapez un espace, glissez votre ANCIEN dossier, puis appuyez sur Entrée.
+   (ditto copie les nouveaux fichiers du programme dans l'ancien dossier, sans effacer le reste.)
+4. Mettez le nouveau dossier à la corbeille, puis double-cliquez sur « Traducteur d'articles » dans l'ancien
+   dossier : la mise à jour se termine toute seule (moins d'une minute), sans nouvel avertissement de macOS.
+Vos identifiants, votre liste d'articles et vos traductions sont conservés.
+
+DÉSINSTALLER
+------------
+Fermez le Traducteur (bouton « Quitter »), puis mettez le dossier à la corbeille. Rien d'autre n'a été installé.
+Attention : vos identifiants, votre liste d'articles et vos traductions enregistrés dans ce dossier sont supprimés
+avec lui. Les brouillons déjà créés dans WordPress ne sont pas touchés.

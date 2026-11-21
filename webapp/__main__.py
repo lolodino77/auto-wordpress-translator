@@ -8,7 +8,7 @@ Python : dès qu'un fichier change (mise à jour, correction), il s'arrête prop
 nouvelle version, en 1 à 2 secondes. Jamais pendant une traduction : il attend la fin de l'article en cours. La page
 ouverte dans le navigateur se reconnecte et se recharge seule si l'interface a changé.
 
-Lancé par l'icône ou le lanceur de la version portable (pythonw.exe sous Windows, TRADUCTEUR_ARRIERE_PLAN=1 sous Linux),
+Lancé par l'icône ou le lanceur de la version portable (pythonw.exe sous Windows, TRADUCTEUR_ARRIERE_PLAN=1 sous Linux et Mac),
 le programme n'ouvre AUCUNE fenêtre noire : il tourne en arrière-plan, son journal va dans traducteur.log, et le bouton
 « Quitter » de l'interface l'arrête. En cas d'échec au démarrage, une boîte de message l'explique."""
 import argparse
@@ -33,7 +33,7 @@ TITLE = "Traducteur d'articles"
 
 
 def background_mode() -> bool:
-    """Vrai quand il n'y a pas de console où écrire : pythonw.exe (Windows), ou lanceur Linux qui démarre le programme
+    """Vrai quand il n'y a pas de console où écrire : pythonw.exe (Windows), ou lanceur Linux ou Mac qui démarre le programme
     détaché du terminal (TRADUCTEUR_ARRIERE_PLAN=1)."""
     return sys.stdout is None or sys.stderr is None or bool(os.environ.get("TRADUCTEUR_ARRIERE_PLAN"))
 
@@ -58,6 +58,15 @@ def show_message(text: str) -> None:
 
             ctypes.windll.user32.MessageBoxW(0, text, TITLE, 0x10)
         except Exception:
+            pass
+        return
+    if sys.platform == "darwin":  # Mac : boîte de dialogue standard (le texte passe en argument, jamais dans le script)
+        try:
+            subprocess.run(["osascript", "-e", "on run argv", "-e",
+                            'display dialog (item 1 of argv) with title (item 2 of argv) buttons {"OK"} '
+                            "default button 1 with icon stop", "-e", "end run", text, TITLE],
+                           capture_output=True, timeout=600)
+        except (OSError, subprocess.SubprocessError):
             pass
         return
     import shutil

@@ -1,6 +1,6 @@
 """Tests de la version portable (python -m unittest test_packaging). Sans Internet : ni uv, ni Python, ni Chromium ne
 sont téléchargés ; on vérifie le contenu des paquets, la vérification rapide, ce qui est protégé, et le cloisonnement
-des systèmes (tout ce qui est propre à Windows ou à Linux reste dans packaging/<système>/)."""
+des systèmes (tout ce qui est propre à Windows, à Linux ou au Mac reste dans packaging/<système>/)."""
 import ast
 import json
 import os
@@ -22,8 +22,10 @@ import prepare  # noqa: E402
 import system_base  # noqa: E402
 
 SYSTEM = system_base.load()  # le système de cet ordinateur
-WINDOWS, LINUX = system_base.load("windows"), system_base.load("linux")
+WINDOWS, LINUX, MACOS = system_base.load("windows"), system_base.load("linux"), system_base.load("macos")
+ALL_SYSTEMS = (WINDOWS, LINUX, MACOS)
 LINUX_MODULE = sys.modules[type(LINUX).__module__]
+MACOS_MODULE = sys.modules[type(MACOS).__module__]
 
 
 def copy_program(dest: Path) -> Path:
@@ -153,13 +155,14 @@ class Systems(unittest.TestCase):
     """Chaque système est cloisonné dans packaging/<système>/ ; le code commun n'en connaît aucun."""
 
     def test_available_systems(self):
-        self.assertEqual(system_base.available(), ["linux", "windows"])
-        for system in (WINDOWS, LINUX):
+        self.assertEqual(system_base.available(), ["linux", "macos", "windows"])
+        for system in ALL_SYSTEMS:
             self.assertTrue((system.folder / system.LAUNCHER).is_file(), system.NAME)
             self.assertTrue((system.folder / system.NOTICE).is_file(), system.NAME)
 
     def test_common_code_knows_no_particular_system(self):
-        words = ["powershell", ".bat", ".sh", "scripts", ".desktop", "taskkill", "onedrive", "linux", "windows"]
+        words = ["powershell", ".bat", ".sh", "scripts", ".desktop", "taskkill", "onedrive", "linux", "windows",
+                 ".command", "osascript", "xattr", "icloud", ".app", "macos", "darwin"]
         for f in [ROOT / "packaging" / "build_package.py", *(ROOT / "packaging" / "common").glob("*.py")]:
             tree = ast.parse(f.read_text(encoding="utf-8"))
             for node in ast.walk(tree):  # le code seul : ni commentaires (perdus par ast), ni docstrings
@@ -176,10 +179,10 @@ class Systems(unittest.TestCase):
             self.assertNotIn("sys.platform", code, f.name)
 
     def test_unsupported_system_is_refused_clearly(self):
-        with patch.object(prepare, "load", side_effect=LookupError("macos")), \
+        with patch.object(prepare, "load", side_effect=LookupError("solaris")), \
                 patch.object(sys, "argv", ["prepare.py", "--root", str(Path(tempfile.mkdtemp()))]):
             self.assertEqual(prepare.main(), 2)
-        for name in ("macos", "common", "assets"):
+        for name in ("solaris", "common", "assets", "outils"):
             with self.assertRaises(LookupError):
                 system_base.load(name)
 
@@ -248,6 +251,105 @@ class LinuxSystem(unittest.TestCase):
                 LINUX.check_system(root, Path("python"))
 
 
+class MacSystem(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_launcher_is_posix_sh_with_unix_line_endings(self):
+        data = (MACOS.folder / MACOS.LAUNCHER).read_bytes()
+        self.assertTrue(MACOS.LAUNCHER.endswith(".command"))  # le Finder l'ouvre dans le Terminal
+        self.assertTrue(data.startswith(b"#!/bin/sh\n"))
+        self.assertNotIn(b"\r", data)
+        for bashism in (b"[[", b"function ", b"$'", b"local ", b"setsid", b"ldd"):
+            self.assertNotIn(bashism, data)
+        self.assertIn(b"apple-darwin", data)
+
+    def test_sh_quote(self):
+        q = MACOS_MODULE.sh_quote
+        self.assertEqual(q("/Users/a b/x"), "'/Users/a b/x'")
+        self.assertEqual(q("/Users/l'a/$x"), "'/Users/l'\\''a/$x'")
+
+    def test_application_is_created_next_to_the_launcher(self):
+        import plistlib
+
+        root = self.tmp / "Mes documents" / "Traducteur d'essai" / "programme"
+        root.mkdir(parents=True)
+        with patch.object(MACOS_MODULE.shutil, "which", return_value=None):  # ni sips ni iconutil : pas d'icône
+            MACOS.create_icon(root)
+            MACOS.create_icon(root)  # refaite à chaque préparation (dossier déplacé) : l'ancienne est remplacée
+        app = root.parent / "Traducteur d'articles.app" / "Contents"
+        info = plistlib.loads((app / "Info.plist").read_bytes())
+        self.assertEqual(info["CFBundleExecutable"], "traducteur")
+        self.assertEqual(info["CFBundlePackageType"], "APPL")
+        self.assertNotIn("CFBundleIconFile", info)
+        script = (app / "MacOS" / "traducteur").read_text(encoding="utf-8")
+        self.assertTrue(script.startswith("#!/bin/sh\n"))
+        self.assertIn(f'LANCEUR="$ICI/{MACOS.LAUNCHER}"', script)  # suit le dossier s'il est déplacé
+        self.assertIn(MACOS_MODULE.sh_quote(root.parent / MACOS.LAUNCHER), script)  # application glissée ailleurs
+        if os.name != "nt":
+            self.assertEqual((app / "MacOS" / "traducteur").stat().st_mode & 0o777, 0o755)
+        with patch.object(MACOS_MODULE, "make_icns", return_value=True):
+            MACOS.create_icon(root)
+        self.assertEqual(plistlib.loads((app / "Info.plist").read_bytes())["CFBundleIconFile"], "traducteur")
+
+    def test_icloud_and_external_disks_are_reported(self):
+        home = self.tmp / "home"
+        docs = home / "Documents" / "Traducteur" / "programme"
+        docs.mkdir(parents=True)
+        self.assertFalse(MACOS_MODULE.in_icloud(docs, home))
+        (home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Documents").mkdir(parents=True)
+        self.assertTrue(MACOS_MODULE.in_icloud(docs, home))  # « Bureau et Documents » synchronisés par iCloud
+        drive = home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Traducteur" / "programme"
+        drive.mkdir(parents=True)
+        self.assertTrue(MACOS_MODULE.in_icloud(drive, home))
+        with patch.object(MACOS_MODULE, "in_icloud", return_value=False):
+            with patch.object(MACOS_MODULE, "_mount_of", return_value=("apfs", {"local"})):
+                self.assertEqual(MACOS.location_warnings(docs), [])
+            with patch.object(MACOS_MODULE, "_mount_of", return_value=("msdos", {"local"})):
+                self.assertIn("msdos", MACOS.location_warnings(docs)[0])
+
+    def test_mount_output_is_understood(self):
+        out = ("/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)\n"
+               "/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse)\n"
+               "/dev/disk4s1 on /Volumes/CLÉ USB (msdos, local, nodev, nosuid, noowners)\n")
+        result = type("R", (), {"stdout": out})()
+        with patch.object(MACOS_MODULE.subprocess, "run", return_value=result):
+            self.assertEqual(MACOS_MODULE._mount_of(PurePosix("/Volumes/CLÉ USB/Traducteur"))[0], "msdos")
+            self.assertEqual(MACOS_MODULE._mount_of(PurePosix("/Users/marie/Traducteur"))[0], "apfs")
+
+    def test_browser_that_does_not_start(self):
+        root = self.tmp / "programme"
+        exe = (root / "runtime" / "browsers" / "chromium-1200" / "chrome-mac-arm64" / "Chromium.app" / "Contents"
+               / "MacOS" / "Chromium")
+        exe.parent.mkdir(parents=True)
+        exe.write_text("")
+        self.assertEqual(MACOS_MODULE.chromium_binary(root), exe)
+        with patch.object(MACOS_MODULE, "browser_starts", return_value=True):
+            self.assertEqual(MACOS.check_system(root, Path("python")), [])
+        with patch.object(MACOS_MODULE, "browser_starts", return_value=False):
+            with patch.object(MACOS_MODULE, "google_chrome", return_value="/Applications/Google Chrome.app"):
+                self.assertTrue(MACOS.check_system(root, Path("python")))  # simple avertissement : Chrome sert
+            with patch.object(MACOS_MODULE, "google_chrome", return_value=None), \
+                    self.assertRaises(system_base.PrepareError):
+                MACOS.check_system(root, Path("python"))
+
+
+class PurePosix:
+    """Chemin du Mac (« /Volumes/… ») manipulé tel quel, quel que soit le système qui lance les tests."""
+
+    def __init__(self, text):
+        self.text = text
+
+    def resolve(self):
+        return self
+
+    def __str__(self):
+        return self.text
+
+
 class PortChoice(unittest.TestCase):
     """Un autre programme (ou un autre exemplaire du Traducteur) sur le port 8710 ne doit pas empêcher celui-ci de
     démarrer ; un double-clic répété rouvre simplement la page."""
@@ -277,7 +379,7 @@ class PortChoice(unittest.TestCase):
 class Package(unittest.TestCase):
     FORBIDDEN = ["/input/", "wp_credentials", "wp_token", "/output/", "browser_profile", ".db", "/frontend/", "test_",
                  "agent.log", "/.claude/", "__pycache__", "/.venv/", "/runtime/", "installation.json",
-                 "packaging/macos/", "lancer-le-traducteur", "Lancer le traducteur"]
+                 "lancer-le-traducteur", "Lancer le traducteur"]
 
     def setUp(self):
         self.out = Path(tempfile.mkdtemp())
@@ -292,8 +394,8 @@ class Package(unittest.TestCase):
         for required in ["VERSION", "packaging/common/prepare.py", "packaging/common/system_base.py",
                          f"packaging/{system.NAME}/system.py", "webapp/static/index.html"]:
             self.assertIn(top + "programme/" + required, names)
-        other = {"windows": "linux", "linux": "windows"}[system.NAME]
-        for forbidden in self.FORBIDDEN + [f"packaging/{other}/"]:
+        others = [f"packaging/{s.NAME}/" for s in ALL_SYSTEMS if s is not system]
+        for forbidden in self.FORBIDDEN + others:
             self.assertFalse([n for n in names if forbidden in n], forbidden)
 
     def test_windows_portable_package_content(self):
@@ -322,6 +424,23 @@ class Package(unittest.TestCase):
             self.assertNotIn(b"\r", notice)
             self.assertFalse(notice.startswith(b"\xef\xbb\xbf"))
             self.assertFalse([n for n in names if n.endswith(".bat")])
+
+
+    def test_mac_portable_package_content(self):
+        path = build_package.build("macos", self.out, force=True)
+        self.assertEqual(path.name, "TraducteurWordPress-Mac.zip")
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+            top = "TraducteurWordPress-Mac/"
+            self.check_common(names, top, MACOS)
+            launcher = z.getinfo(top + MACOS.LAUNCHER)
+            self.assertEqual(launcher.create_system, 3)  # droits Unix appliqués par l'outil de décompression du Mac
+            self.assertEqual((launcher.external_attr >> 16) & 0o777, 0o755)
+            self.assertNotIn(b"\r", z.read(top + MACOS.LAUNCHER))
+            notice = z.read(top + "LISEZ-MOI.txt")
+            self.assertNotIn(b"\r", notice)
+            self.assertFalse(notice.startswith(b"\xef\xbb\xbf"))
+            self.assertFalse([n for n in names if n.endswith((".bat", ".sh", ".desktop")) or ".app/" in n])
 
 
 if __name__ == "__main__":
